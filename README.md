@@ -60,8 +60,8 @@ upkeep 5/5  →   0/25 ads with problems  (  0%)
 ## Quick start
 
 ```bash
-git clone <repo-url>
-cd scraper_casas
+git clone https://github.com/lds1804/scraper-imoveis.git
+cd scraper-imoveis
 
 python -m venv .venv
 # Windows
@@ -260,24 +260,6 @@ Everything resumes: re-running skips what's already downloaded or analyzed.
 
 The progress bar (`progresso.py`) is hand-rolled in plain ASCII because
 PowerShell 5.1 with cp1252 chokes on `tqdm`/`rich` Unicode output.
-
----
-
-## Tests
-
-```bash
-python testar_web.py         # 26 route/filter checks, no server needed
-python conferir_segredos.py  # scan for leaked secrets before publishing
-```
-
-`testar_web.py` runs through Flask's `test_client()` and covers: every filter
-narrows the result set, filters combine, active-filter chips remove only
-themselves, all 180 listing links resolve, and a missing ad returns 404 rather
-than 500.
-
-> **Gotcha:** when testing links, HTML-unescape (`&amp;` → `&`) before calling
-> `client.get()`. Ad URLs contain query strings, and Jinja escapes them. Without
-> unescaping, the test fails on a perfectly correct app — this has bitten twice.
 
 ---
 
