@@ -18,6 +18,10 @@ fotos/
 html_ponte/
 debug_html/
 
+# Saídas geradas: listas de alvos da ponte, logs de execução, capturas de tela,
+# HTML de depuração. Tudo recriável, nada disso precisa ser versionado.
+dados/
+
 # ---------------------------------------------------------------------------
 # Perfil do navegador: contém COOKIES DE SESSÃO. Publicar isso equivaleria a
 # entregar a conta logada no Imovelweb.

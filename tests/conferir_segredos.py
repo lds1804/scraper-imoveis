@@ -95,13 +95,17 @@ def _varrer_index_git() -> tuple[list[str], list[str]]:
     ignorado, mas o que importa é o que foi para o índice. Também pega o caso
     inverso — alguém deu `git add -f` e furou o .gitignore.
 
+    Usa `git ls-files` (arquivos REALMENTE versionados) e não
+    `git diff --cached` — este último lista também as REMOÇÕES, o que faria
+    um arquivo recém-excluído aparecer como se ainda estivesse publicado.
+
     Devolve (achados, lista_de_arquivos_indexados).
     """
     import subprocess
 
     try:
         r = subprocess.run(
-            ["git", "diff", "--cached", "--name-only"],
+            ["git", "ls-files", "--cached"],
             cwd=RAIZ, capture_output=True, text=True, timeout=60,
         )
     except (OSError, subprocess.SubprocessError):
@@ -185,7 +189,7 @@ def main() -> int:
 
     # ---- a checagem que decide: o índice do git ----
     print("=" * 62)
-    print("O QUE O GIT VAI PUBLICAR (git diff --cached)")
+    print("O QUE O GIT VAI PUBLICAR (git ls-files --cached)")
     print("=" * 62)
     achados_git, arquivos_git = _varrer_index_git()
 
@@ -204,6 +208,29 @@ def main() -> int:
             achados_git.append(f"arquivo proibido no índice: {proibidos}")
         else:
             print("  OK: nenhum .env, perfil de navegador, banco ou pasta de fotos")
+
+        # Arquivos GERADOS que não deveriam ser versionados. Não são segredo,
+        # mas poluem o repositório e podem carregar dado de sessão ou de uso.
+        # Esta checagem já pegou uma vez a pasta `dados/` inteira publicada.
+        gerados = [
+            a for a in arquivos_git
+            if re.search(
+                r"\.log$|(^|/)proc.*\.txt$|(^|/)visao.*\.txt$|"
+                r"duplicatas\.(csv|txt)$|(^|/)debug_|\.png$|"
+                r"^dados/|^html_ponte/|_alvos_.*\.json$|\.xlsx?$|\.csv$",
+                a,
+            )
+        ]
+        if gerados:
+            print("\n  !!! ARQUIVO GERADO VERSIONADO "
+                  "(deveria estar no .gitignore):")
+            for g in gerados:
+                print(f"      {g}")
+            achados_git.append(
+                f"arquivo gerado versionado ({len(gerados)}): {gerados[:5]}"
+            )
+        else:
+            print("  OK: nenhum log, captura de tela, dump ou lista de alvos")
 
     achados.extend(achados_git)
 

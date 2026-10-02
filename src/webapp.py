@@ -443,8 +443,8 @@ def _ponte_alvos():
     """
     import json as _json
 
-    caminho = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           "_alvos_detalhe.json")
+    # fica em `dados/`, não ao lado deste arquivo (que está em `src/`)
+    caminho = config.caminho("dados", "_alvos_detalhe.json")
     if not os.path.exists(caminho):
         return {"total": 0, "alvos": []}
     with open(caminho, encoding="utf-8") as f:
