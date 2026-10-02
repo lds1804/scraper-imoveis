@@ -1,3 +1,3 @@
 ﻿from _runner import executar
-executar('processar_ponte')
+executar('analisar_visao')
 

@@ -1,0 +1,19 @@
+# Normaliza os finais de linha: o repositório guarda LF, mesmo no Windows.
+# Sem isso, o git avisa "LF will be replaced by CRLF" a cada arquivo e o diff
+# fica cheio de ruído quando alguém abre o projeto em outro sistema.
+* text=auto eol=lf
+
+# Binários: nunca normalizar
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.db binary
+*.woff binary
+*.woff2 binary
+
+# Arquivos que precisam de CRLF de verdade (scripts do Windows)
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf

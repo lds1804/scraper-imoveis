@@ -9,6 +9,10 @@ Uso:
     python inspecionar_detalhe.py <indice>   # usa o N-ésimo (0-based)
 """
 
+
+from _bootstrap import iniciar
+iniciar()  # poe src/ no sys.path e fixa a raiz como diretorio de trabalho
+
 import re
 import sqlite3
 import sys

@@ -76,7 +76,8 @@ playwright install chromium
 ### Configure the API key
 
 The vision step needs a [DeepSeek](https://platform.deepseek.com) API key.
-It is read from an environment variable, falling back to a `.env` file:
+It is read from an environment variable, falling back to a `.env` file at the
+project root:
 
 ```bash
 # .env
@@ -86,39 +87,98 @@ DEEPSEEK_API_KEY=sk-...
 Copy `.env.exemplo` to get started. **`.env` is gitignored and must never be
 committed.** Only `deepseek-flash` supports image input.
 
-### Run the web UI
+### Run
+
+All commands are run **from the project root**:
 
 ```bash
+python main.py --listar       # see the configured neighborhoods
 python main.py --dry-run      # sanity-check the scraping access first
 python main.py                # full collection
 python enriquecer_detalhes.py # detail pages: full galleries + descriptions
 python achar_duplicatas.py --marcar
-python analisar_visual.py     # vision analysis
+python analisar_visao.py      # vision analysis
 python webapp.py              # http://127.0.0.1:5000
 ```
 
 ---
 
-## Project structure
+## Project layout
 
 ```
-config.py               neighborhoods, price limits, keywords, tunables
-scraper_browser.py      Playwright scraping + all parsing logic
-storage.py              SQLite persistence + photo downloads
-main.py                 collection orchestration
-enriquecer_detalhes.py  completion via each ad's detail page
-processar_ponte.py      processes HTML captured by the browser bridge
-achar_duplicatas.py     pHash duplicate detection
-analise_visual.py       vision analysis library
-analisar_visual.py      vision analysis CLI
-progresso.py            ASCII progress bar
-webapp.py               Flask server
-testar_web.py           route / filter tests
-conferir_segredos.py    secret scanner (run before publishing)
+src/                    production code
+  config.py             neighborhoods, price limits, keywords, tunables
+  scraper_browser.py    Playwright scraping + all parsing logic
+  storage.py            SQLite persistence + photo downloads
+  visao.py              vision analysis library
+  progresso.py          ASCII progress bar
+  main.py               collection orchestration
+  enriquecer_detalhes.py   completion via each ad's detail page
+  processar_ponte.py    processes HTML captured by the browser bridge
+  achar_duplicatas.py   pHash duplicate detection
+  analisar_visao.py     vision analysis CLI
+  auditar_localidade.py neighborhood audit / cleanup
+  webapp.py             Flask server
+
+tests/                  run directly, no server needed
+  testar_web.py         route / filter tests
+  testar_parser.py      listing parser against saved HTML
+  verificar_localidade.py
+  verificar_financiamento.py
+  conferir_segredos.py  secret scanner (run before publishing)
+  _bootstrap.py         puts src/ on sys.path for these scripts
+
+tools/                  one-off debug helpers
+  inspecionar_detalhe.py   dump a detail page
+  descobrir_bairro.py      find the right neighborhood slug
+  migrar_dados.py          schema migration
+
+antigo/                 superseded, kept for reference
+
 web/                    templates and CSS
-imoveis.db              generated (SQLite)
-fotos/                  downloaded photos, one folder per ad
+  templates/            Jinja templates
+  static/style.css
+
+dados/                  generated outputs (gitignored)
+fotos/                  downloaded photos, one folder per ad (gitignored)
+html_ponte/             HTML captured via the browser bridge (gitignored)
+imoveis.db              generated SQLite database (gitignored)
+
+main.py, webapp.py, ... thin launchers at the root (see below)
 ```
+
+### Why `src/` plus thin launchers at the root
+
+Production code lives in `src/`, but the documented commands still work from
+the root because each is a **2-line launcher** delegating to `src/`:
+
+```python
+from _runner import executar
+executar('main')
+```
+
+`_runner.py` puts `src/` on `sys.path` and **fixes the working directory to the
+project root**. That second part matters: without it, running from another
+directory would create a second, empty `imoveis.db` somewhere else, and the
+data would appear to vanish with no error at all.
+
+All data paths are likewise resolved from the project root through
+`config.caminho(...)`, never from the current directory.
+
+### Tests
+
+```bash
+python tests/testar_web.py         # 26 route / filter checks
+python tests/conferir_segredos.py  # scan for leaked secrets
+```
+
+These scripts call `_bootstrap.iniciar()` at the top (which does the same
+`sys.path` / working-directory setup), so they work from any directory.
+
+> **Gotcha:** when testing links, HTML-unescape (`&amp;` → `&`) before calling
+> `client.get()`. Ad URLs contain query strings, and Jinja escapes them. Without
+> unescaping, the test fails on a perfectly correct app — this has bitten twice.
+
 
 ---
 

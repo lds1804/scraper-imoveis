@@ -7,6 +7,10 @@
 
 from __future__ import annotations
 
+
+from _bootstrap import iniciar
+iniciar()  # poe src/ no sys.path e fixa a raiz como diretorio de trabalho
+
 import re
 import sqlite3
 

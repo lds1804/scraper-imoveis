@@ -1,0 +1,47 @@
+﻿
+=== 1) A pagina inicial responde ===
+  PASSA  GET / devolve 200 (veio 200)
+  PASSA  lista an·ncios (178 cards)
+
+=== 2) Filtros que so REDUZEM (nunca aumentam) ===
+  PASSA  s¾ com quintal: 87 cards (de 178)
+  PASSA  aceita financiamento: 54 cards (de 178)
+  PASSA  s¾ com ßrvores: 90 cards (de 178)
+  PASSA  bem cuidado (4+): 115 cards (de 178)
+  PASSA  s¾ com problemas: 37 cards (de 178)
+  PASSA  quintal gramado: 5 cards (de 178)
+  PASSA  quintal cimentado: 78 cards (de 178)
+  PASSA  quintal misto: 34 cards (de 178)
+
+=== 3) Regressao: 'terra batida' nao pode vir vazio ===
+  PASSA  GET /?piso_quintal=terra devolve 200
+  PASSA  'com terra batida' encontra resultados (4 cards)
+
+=== 4) Filtros combinados se acumulam ===
+  PASSA  arvores+problemas (25) <= arvores (90)
+
+=== 5) Filtro impossivel devolve vazio, sem erro ===
+  PASSA  preco_max=1 devolve 200 (nÒo 500)
+  PASSA  preco_max=1 nÒo lista nada
+
+=== 6) Chips dos filtros ativos ===
+  PASSA  mostra o r¾tulo 'Filtros ativos'
+  PASSA  um chip por filtro ativo (2)
+  PASSA  existe chip para 's¾ com quintal'
+  PASSA  o chip remove s¾ o quintal, mantendo ßrvores (/?so_arvores=1)
+
+=== 7) Sem filtro ativo nao mostra 'Limpar' ===
+  PASSA  sem filtros, nÒo hß botÒo Limpar
+  PASSA  com filtro, aparece o botÒo Limpar
+
+=== 8) Pagina de detalhe de um anuncio real ===
+  PASSA  achou um link de an·ncio na listagem
+  PASSA  GET /anuncio/... devolve 200 (200)
+  PASSA  mostra o bloco da anßlise visual
+  PASSA  todos os 180 links da listagem abrem (status {200})
+
+=== 9) Anuncio inexistente nao explode ===
+  PASSA  devolve 404 (nÒo 500)
+
+==========================================================
+TODAS AS 26 VERIFICAÃıES PASSARAM

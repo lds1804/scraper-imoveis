@@ -151,10 +151,34 @@ NAV_TIMEOUT_MS = 60_000
 MAX_PAGINAS = 20
 
 # ---------------------------------------------------------------------------
+# Caminhos
+# ---------------------------------------------------------------------------
+# O projeto tem `src/` (código), `web/` (interface) e pastas de dados. Todos
+# os caminhos são resolvidos a partir da RAIZ do projeto, não do diretório
+# atual — senão rodar `python src/main.py` de dentro de `src/` criaria um
+# `imoveis.db` novo lá dentro, e o banco "sumiria" sem nenhum erro.
+#
+# Este arquivo mora em `<raiz>/src/config.py`, então a raiz é o diretório pai.
+import os as _os
+
+RAIZ = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+
+def caminho(*partes: str) -> str:
+    """Monta um caminho absoluto a partir da raiz do projeto."""
+    return _os.path.join(RAIZ, *partes)
+
+# ---------------------------------------------------------------------------
 # Armazenamento local
 # ---------------------------------------------------------------------------
-DB_PATH = "imoveis.db"
-FOTOS_DIR = "fotos"
+DB_PATH = caminho("imoveis.db")
+FOTOS_DIR = caminho("fotos")
+
+# Onde a ponte do navegador grava o HTML capturado
+PONTE_DIR = caminho("html_ponte")
+# Onde ficam os HTMLs salvos quando o Cloudflare bloqueia
+DEBUG_HTML_DIR = caminho("debug_html")
+# Perfil persistente do Playwright (cookies de sessão)
+USER_DATA_DIR = caminho("playwright-profile")
 
 # Quantas fotos baixar ao mesmo tempo. O gargalo do download é a latência da
 # rede (cada foto leva ~0,5-1s), não a CPU — então threads ajudam muito.

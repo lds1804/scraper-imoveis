@@ -1,5 +1,9 @@
 """Descobre o slug correto do bairro Parque São Domingo."""
 
+
+from _bootstrap import iniciar
+iniciar()  # poe src/ no sys.path e fixa a raiz como diretorio de trabalho
+
 from playwright.sync_api import sync_playwright
 
 CANDIDATOS = [

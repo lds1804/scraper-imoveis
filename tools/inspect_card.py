@@ -1,6 +1,10 @@
 
 """Analisa varios cards para basear o parser."""
 
+
+from _bootstrap import iniciar
+iniciar()  # poe src/ no sys.path e fixa a raiz como diretorio de trabalho
+
 import re
 from bs4 import BeautifulSoup
 

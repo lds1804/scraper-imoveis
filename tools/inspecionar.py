@@ -1,5 +1,9 @@
 """Inspeciona o HTML salvo para descobrir os seletores reais dos cards."""
 
+
+from _bootstrap import iniciar
+iniciar()  # poe src/ no sys.path e fixa a raiz como diretorio de trabalho
+
 import re
 from collections import Counter
 

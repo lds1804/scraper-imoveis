@@ -5,6 +5,10 @@ Uso: python verificar_financiamento.py
 
 from __future__ import annotations
 
+
+from _bootstrap import iniciar
+iniciar()  # poe src/ no sys.path e fixa a raiz como diretorio de trabalho
+
 import sqlite3
 
 import config

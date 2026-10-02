@@ -36,8 +36,12 @@ _ARQUIVO_ENV = ".env"
 
 
 def _ler_env_arquivo(chave: str) -> Optional[str]:
-    """Lê uma chave de um `.env` simples (KEY=valor) na raiz do projeto."""
-    caminho = os.path.join(os.path.dirname(os.path.abspath(__file__)), _ARQUIVO_ENV)
+    """Lê uma chave de um `.env` simples (KEY=valor) na raiz do projeto.
+
+    A raiz vem do `config`, não do diretório deste arquivo: ele vive em
+    `src/`, mas o `.env` fica ao lado do `imoveis.db`, na raiz.
+    """
+    caminho = config.caminho(_ARQUIVO_ENV)
     if not os.path.exists(caminho):
         return None
     try:

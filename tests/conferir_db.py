@@ -1,5 +1,9 @@
 """Conferência rápida do estado do banco."""
 
+
+from _bootstrap import iniciar
+iniciar()  # poe src/ no sys.path e fixa a raiz como diretorio de trabalho
+
 import sqlite3
 
 c = sqlite3.connect("imoveis.db")

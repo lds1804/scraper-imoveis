@@ -1,5 +1,11 @@
 # Scraper Imovelweb
 
+> ⚠️ **Documento histórico.** Este README descreve uma versão anterior do
+> projeto: os camelôs `config.py`/`main.py` ainda estão na raiz, mas o código
+> de produção foi movido para `src/` e os testes para `tests/`. Os comandos
+> abaixo continuam funcionando (há atalhos na raiz). Para a documentação
+> atual, veja o [README.md](README.md), em inglês.
+
 Coleta anúncios de **casas à venda** na **Vila Mangalot** e **Parque São Domingo**
 (São Paulo), filtra por preço (até R$ 900 mil) e área de terreno (> 200 m²),
 e tenta identificar imóveis com quintal/terra. Salva tudo localmente (SQLite + fotos).
@@ -78,28 +84,35 @@ python webapp.py
 # abra http://127.0.0.1:5000
 ```
 
-**5. Testar as rotas do webapp** (com o servidor rodando):
+**5. Testar as rotas do webapp:**
 
 ```powershell
-python conferir_web.py
+python tests\testar_web.py          # não precisa do servidor rodando
+python tools\conferir_web.py        # precisa do servidor rodando
 ```
 
 ## Estrutura
 
 ```
-config.py               # bairros, preços, palavras-chave, limites
-scraper_browser.py      # Playwright: parsing da listagem E da página individual
-storage.py              # SQLite + download de fotos
-main.py                 # orquestração da coleta
-enriquecer_detalhes.py  # completa os dados via página individual
-webapp.py               # servidor Flask da interface web
-conferir_web.py         # teste das rotas do webapp
-inspecionar_detalhe.py  # utilitário: dump de uma página de detalhe p/ debug
-imoveis.db              # banco gerado (SQLite)
-fotos/                  # fotos baixadas (uma pasta por anúncio)
-web/                    # templates e CSS da interface
-playwright-profile/     # perfil do navegador (cookies do Cloudflare)
-debug_html/             # HTML salvo quando há bloqueio (para inspeção)
+src/                    código de produção
+  config.py             bairros, preços, palavras-chave, limites
+  scraper_browser.py    Playwright: parsing da listagem E da página individual
+  storage.py            SQLite + download de fotos
+  visao.py              biblioteca da análise visual
+  progresso.py          barra de progresso
+  main.py               orquestração da coleta
+  enriquecer_detalhes.py  completa os dados via página individual
+  webapp.py             servidor Flask da interface web
+tests/                  testes (rodam direto, sem servidor)
+  testar_web.py         rotas e filtros do webapp
+  conferir_web.py       teste das rotas do webapp
+tools/                  ferramentas de debug
+  inspecionar_detalhe.py  dump de uma página de detalhe
+antigo/                 substituídos, mantidos como referência
+web/                    templates e CSS da interface
+dados/                  saídas geradas (ignorado)
+imoveis.db              banco gerado (SQLite, ignorado)
+fotos/                  fotos baixadas (uma pasta por anúncio, ignorado)
 ```
 
 ## Avisos importantes
