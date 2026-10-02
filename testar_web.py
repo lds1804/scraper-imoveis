@@ -1,0 +1,162 @@
+"""Testes das rotas e dos filtros da interface web.
+
+Por que existe: os filtros são combináveis e a URL é a única fonte de
+verdade deles. Um erro aqui não quebra a página — ele devolve a lista
+errada em silêncio, que é pior. Foi assim que o filtro "Terra batida"
+ficou retornando zero resultados: o código estava sintaticamente correto.
+
+Roda sem servidor, pelo `test_client` do Flask:
+    .venv\\Scripts\\python.exe testar_web.py
+
+Não depende de rede nem de navegador.
+"""
+
+from __future__ import annotations
+
+import html as htmlmod
+import re
+import sys
+
+import webapp
+
+_falhas: list[str] = []
+_total = 0
+
+
+def verificar(condicao: bool, descricao: str) -> None:
+    global _total
+    _total += 1
+    if condicao:
+        print(f"  PASSA  {descricao}")
+    else:
+        print(f"  FALHA  {descricao}")
+        _falhas.append(descricao)
+
+
+def _cards(html: bytes) -> int:
+    return html.count(b'class="card"')
+
+
+def _get(cliente, query: str = ""):
+    return cliente.get("/" + query)
+
+
+def main() -> int:
+    app = webapp.app
+    app.config["TESTING"] = True
+    cliente = app.test_client()
+
+    print("\n=== 1) A pagina inicial responde ===")
+    r = _get(cliente)
+    verificar(r.status_code == 200, f"GET / devolve 200 (veio {r.status_code})")
+    total_sem_filtro = _cards(r.data)
+    verificar(total_sem_filtro > 100, f"lista anúncios ({total_sem_filtro} cards)")
+
+    print("\n=== 2) Filtros que so REDUZEM (nunca aumentam) ===")
+    # cada filtro tem que devolver um subconjunto do total
+    filtros = {
+        "?so_quintal=1": "só com quintal",
+        "?so_financiamento=1": "aceita financiamento",
+        "?so_arvores=1": "só com árvores",
+        "?so_cuidado=1": "bem cuidado (4+)",
+        "?com_problemas=1": "só com problemas",
+        "?piso_quintal=grama": "quintal gramado",
+        "?piso_quintal=cimento": "quintal cimentado",
+        "?piso_quintal=misto": "quintal misto",
+    }
+    for query, nome in filtros.items():
+        r = _get(cliente, query)
+        n = _cards(r.data)
+        verificar(
+            r.status_code == 200 and 0 < n <= total_sem_filtro,
+            f"{nome}: {n} cards (de {total_sem_filtro})",
+        )
+
+    print("\n=== 3) Regressao: 'terra batida' nao pode vir vazio ===")
+    # Este filtro chegou a devolver 0 porque perguntava pelo piso
+    # PREDOMINANTE, e quase todo quintal com terra e classificado como
+    # "misto" (terra + um canto cimentado).
+    r = _get(cliente, "?piso_quintal=terra")
+    n_terra = _cards(r.data)
+    verificar(r.status_code == 200, "GET /?piso_quintal=terra devolve 200")
+    verificar(
+        n_terra > 0,
+        f"'com terra batida' encontra resultados ({n_terra} cards)",
+    )
+
+    print("\n=== 4) Filtros combinados se acumulam ===")
+    r1 = _get(cliente, "?so_arvores=1")
+    r2 = _get(cliente, "?so_arvores=1&com_problemas=1")
+    n1, n2 = _cards(r1.data), _cards(r2.data)
+    verificar(n2 <= n1, f"arvores+problemas ({n2}) <= arvores ({n1})")
+
+    print("\n=== 5) Filtro impossivel devolve vazio, sem erro ===")
+    r = _get(cliente, "?preco_max=1")
+    verificar(r.status_code == 200, "preco_max=1 devolve 200 (não 500)")
+    verificar(_cards(r.data) == 0, "preco_max=1 não lista nada")
+
+    print("\n=== 6) Chips dos filtros ativos ===")
+    r = _get(cliente, "?so_quintal=1&so_arvores=1")
+    html = r.data.decode("utf-8", "replace")
+    verificar("Filtros ativos" in html, "mostra o rótulo 'Filtros ativos'")
+    verificar(html.count('class="chip"') == 2, "um chip por filtro ativo (2)")
+
+    # o chip tem que remover SÓ ele, mantendo o outro filtro
+    m = re.search(r'<a class="chip" href="([^"]+)"[^>]*>\s*só com quintal', html)
+    verificar(m is not None, "existe chip para 'só com quintal'")
+    if m:
+        destino = m.group(1).replace("&amp;", "&")
+        verificar(
+            "so_arvores=1" in destino and "so_quintal" not in destino,
+            f"o chip remove só o quintal, mantendo árvores ({destino})",
+        )
+
+    print("\n=== 7) Sem filtro ativo nao mostra 'Limpar' ===")
+    r = _get(cliente)
+    verificar(b"btn-secundario" not in r.data, "sem filtros, não há botão Limpar")
+    r = _get(cliente, "?so_quintal=1")
+    verificar(b"btn-secundario" in r.data, "com filtro, aparece o botão Limpar")
+
+    print("\n=== 8) Pagina de detalhe de um anuncio real ===")
+    # A URL do anúncio tem query string e vai dentro do href. O Jinja escapa
+    # `&` como `&amp;`, e é isso que aparece no HTML — o navegador desescapa
+    # antes de navegar. Sem desescapar aqui, este teste reprova um app que
+    # está correto (já aconteceu antes com o conferir_web.py).
+    r = _get(cliente, "?so_arvores=1")
+    achou = re.search(rb'href="(/anuncio/[^"]+)"', r.data)
+    verificar(achou is not None, "achou um link de anúncio na listagem")
+    if achou:
+        url = htmlmod.unescape(achou.group(1).decode("utf-8"))
+        rd = cliente.get(url)
+        verificar(rd.status_code == 200, f"GET /anuncio/... devolve 200 ({rd.status_code})")
+        corpo = rd.data.decode("utf-8", "replace")
+        verificar("O que as fotos mostram" in corpo, "mostra o bloco da análise visual")
+
+        # Todos os links da listagem precisam abrir: qualquer anúncio com
+        # `?` na URL quebra se o href não estiver corretamente codificado.
+        todos = [
+            htmlmod.unescape(h)
+            for h in re.findall(r'href="(/anuncio/[^"]+)"', r.data.decode("utf-8", "replace"))
+        ]
+        status = {cliente.get(h).status_code for h in todos}
+        verificar(
+            status == {200},
+            f"todos os {len(todos)} links da listagem abrem (status {status})",
+        )
+
+    print("\n=== 9) Anuncio inexistente nao explode ===")
+    rd = cliente.get("/anuncio/nao-existe-12345")
+    verificar(rd.status_code in (404, 302), f"devolve {rd.status_code} (não 500)")
+
+    print("\n" + "=" * 58)
+    if _falhas:
+        print(f"{len(_falhas)} FALHA(S) de {_total} verificações:")
+        for f in _falhas:
+            print(f"  - {f}")
+        return 1
+    print(f"TODAS AS {_total} VERIFICAÇÕES PASSARAM")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

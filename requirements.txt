@@ -1,0 +1,11 @@
+# Coleta e parsing
+requests>=2.32.3
+beautifulsoup4>=4.12.3
+playwright>=1.40
+
+# Interface web
+Flask>=3.0
+
+# Análise das fotos e detecção de duplicatas
+Pillow>=10.0
+imagehash>=4.3

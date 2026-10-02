@@ -1,0 +1,63 @@
+# ---------------------------------------------------------------------------
+# Segredos — NUNCA versionar
+# ---------------------------------------------------------------------------
+.env
+.env.local
+*.pem
+*.key
+secrets.json
+
+# ---------------------------------------------------------------------------
+# Banco de dados e dados coletados (gerados localmente, ficam grandes)
+# ---------------------------------------------------------------------------
+imoveis.db
+imoveis_*.db
+*.sqlite
+*.sqlite3
+fotos/
+html_ponte/
+debug_html/
+
+# ---------------------------------------------------------------------------
+# Perfil do navegador: contém COOKIES DE SESSÃO. Publicar isso equivaleria a
+# entregar a conta logada no Imovelweb.
+# ---------------------------------------------------------------------------
+playwright-profile/
+
+# ---------------------------------------------------------------------------
+# Arquivos de depuração e saídas de execução local
+# ---------------------------------------------------------------------------
+debug_*.html
+debug_*.py
+proc*.txt
+visao*.txt
+urls.log
+*.log
+teste_playwright.txt
+duplicatas.csv
+duplicatas.txt
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------------------------------------------------------------------------
+# Editores e sistema operacional
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store

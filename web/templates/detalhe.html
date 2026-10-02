@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ a.titulo or 'Anúncio' }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="voltar" href="{{ url_for('index') }}">
+      {{ ic.icone('seta-antes') }} Voltar
+    </a>
+    <span class="topbar-espaco"></span>
+    <span class="pill">{{ ic.icone('pin') }} {{ a.bairro | bairro }}</span>
+    {% if a.match_quintal %}
+      <span class="pill" title="Score de quintal: {{ a.score_quintal }}">
+        {{ ic.icone('arvore') }} quintal
+      </span>
+    {% endif %}
+  </header>
+
+  <main class="detalhe">
+    <section class="carrossel" id="carrossel">
+      {% if a.fotos %}
+        <div class="carrossel-palco">
+          <img id="foto-atual" src="{{ url_for('foto', caminho=a.fotos[0]) }}" alt="{{ a.titulo }}">
+
+          {% if a.fotos | length > 1 %}
+            <span class="carrossel-contador">
+              <span id="pos-atual">1</span> / {{ a.fotos | length }}
+            </span>
+          {% endif %}
+
+          <a class="carrossel-abrir" href="{{ url_for('foto', caminho=a.fotos[0]) }}"
+             id="link-original" target="_blank" rel="noopener">
+            {{ ic.icone('expandir') }} ver original
+          </a>
+
+          {% if a.fotos | length > 1 %}
+            <button class="carrossel-seta ant" id="btn-ant" type="button" aria-label="Foto anterior">
+              {{ ic.icone('seta-antes') }}
+            </button>
+            <button class="carrossel-seta prox" id="btn-prox" type="button" aria-label="Próxima foto">
+              {{ ic.icone('seta-prox') }}
+            </button>
+          {% endif %}
+        </div>
+
+        {% if a.fotos | length > 1 %}
+          <div class="carrossel-minis" id="miniaturas">
+            {% for f in a.fotos %}
+              <button class="carrossel-mini {% if loop.first %}ativa{% endif %}"
+                      type="button" data-idx="{{ loop.index0 }}"
+                      aria-label="Ir para a foto {{ loop.index }}">
+                <img loading="lazy" src="{{ url_for('foto', caminho=f) }}" alt="">
+              </button>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% else %}
+        <div class="carrossel-vazio">
+          {{ ic.icone('imovel', 'ico') }}
+          Nenhuma foto baixada para este anúncio.
+        </div>
+      {% endif %}
+    </section>
+
+    <aside class="painel">
+      <div class="painel-cabeca">
+        <div class="preco">{{ a.preco | moeda }}</div>
+        <h1 class="titulo">{{ a.titulo }}</h1>
+        <p class="endereco">
+          {{ ic.icone('pin') }}
+          {{ a.endereco or (a.bairro | bairro) }}
+        </p>
+      </div>
+
+      {% if a.match_quintal %}
+        <div class="painel-selos">
+          <span class="badge-quintal">
+            {{ ic.icone('arvore') }} tem quintal · score {{ a.score_quintal }}
+          </span>
+        </div>
+      {% endif %}
+
+      <div class="bloco">
+        <h2 class="bloco-titulo">{{ ic.icone('ajustar') }} Características</h2>
+        <ul class="specs grande">
+          {% if a.quartos %}
+            <li>{{ ic.icone('cama') }} {{ a.quartos }} quarto{% if a.quartos != 1 %}s{% endif %}</li>
+          {% endif %}
+          {% if a.banheiros %}
+            <li>{{ ic.icone('chuveiro') }} {{ a.banheiros }} banheiro{% if a.banheiros != 1 %}s{% endif %}</li>
+          {% endif %}
+          {% if a.vagas %}
+            <li>{{ ic.icone('carro') }} {{ a.vagas }} vaga{% if a.vagas != 1 %}s{% endif %}</li>
+          {% endif %}
+          {% if a.area_construida %}
+            <li>{{ ic.icone('area') }} {{ a.area_construida | m2 }} construída</li>
+          {% endif %}
+          {% if a.area_terreno %}
+            <li class="destaque">{{ ic.icone('terreno') }} {{ a.area_terreno | m2 }} de terreno</li>
+          {% endif %}
+        </ul>
+      </div>
+
+      {% if a.descricao %}
+        <div class="bloco">
+          <h2 class="bloco-titulo">{{ ic.icone('megafone') }} Descrição</h2>
+          <div class="descricao">{{ a.descricao }}</div>
+        </div>
+      {% endif %}
+
+      {% if a.foto_ok %}
+        <div class="bloco">
+          <h2 class="bloco-titulo">{{ ic.icone('olho') }} O que as fotos mostram</h2>
+          <p class="bloco-nota">
+            Leitura automática das fotos, independente do texto do anúncio.
+            Serve para conferir o que o anúncio não diz.
+          </p>
+
+          <ul class="specs grande">
+            {% if a.foto_tem_quintal == 1 %}
+              <li class="destaque">
+                {{ ic.icone('arvore') }} quintal
+                {% if a.foto_piso_quintal in ('terra', 'grama', 'cimento', 'misto') %}
+                  · {{ a.foto_piso_quintal }}
+                {% endif %}
+              </li>
+            {% elif a.foto_tem_quintal == 0 %}
+              <li class="recusa">{{ ic.icone('fechar') }} sem quintal visível</li>
+            {% endif %}
+            {% if a.foto_arvores == 1 %}
+              <li class="destaque">{{ ic.icone('arvore') }} árvores</li>
+            {% endif %}
+            {% if a.foto_area_externa == 1 %}
+              <li>{{ ic.icone('terreno') }} área externa</li>
+            {% endif %}
+            {% if a.foto_janelas_grandes == 1 %}
+              <li>{{ ic.icone('expandir') }} janelas grandes</li>
+            {% endif %}
+            {% if a.foto_reformado == 1 %}
+              <li class="confirma">{{ ic.icone('check') }} parece reformado</li>
+            {% endif %}
+            {% if a.foto_fachada in ('terrea', 'sobrado') %}
+              <li>{{ ic.icone('casa') }} {{ a.foto_fachada }}</li>
+            {% endif %}
+            {% if a.foto_planta_baixa == 1 %}
+              <li>{{ ic.icone('area') }} tem planta baixa</li>
+            {% endif %}
+          </ul>
+
+          {% if a.foto_cuidado is not none or a.foto_arejamento is not none or a.foto_iluminacao is not none or a.foto_vegetacao is not none %}
+            <div class="notas-visao">
+              {% for rot in [('cuidado', a.foto_cuidado, 'conservação geral'), ('arejamento', a.foto_arejamento, 'janelas e ventilação'), ('luz natural', a.foto_iluminacao, 'luz natural nos ambientes'), ('vegetação', a.foto_vegetacao, 'presença de vegetação')] %}
+                {% if rot[1] is not none %}
+                  <div class="nota-linha">
+                    <span class="nota-nome" title="{{ rot[2] }}">{{ rot[0] }}</span>
+                    <span class="bolinhas grande">
+                      {% for i in range(1, 6) %}
+                        <i class="{% if i <= rot[1] %}on{% if rot[0] == 'cuidado' and rot[1] <= 2 %} ruim{% elif rot[0] == 'cuidado' and rot[1] == 3 %} medio{% endif %}{% endif %}"></i>
+                      {% endfor %}
+                    </span>
+                    <span class="nota-valor">{{ rot[1] }}/5</span>
+                  </div>
+                {% endif %}
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          {% if a.foto_extras %}
+            <div class="visao-tags">
+              {% for ex in a.foto_extras.split(',') %}
+                <span class="tag-extra">{{ ex | replace('_', ' ') }}</span>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          {% if a.foto_problemas %}
+            <div class="visao-problemas">
+              {{ ic.icone('alerta') }}
+              <span>{{ a.foto_problemas.split(',') | map('replace', '_', ' ') | join(' · ') }}</span>
+            </div>
+          {% endif %}
+
+          {% if a.foto_resumo %}
+            <p class="visao-resumo">
+              <em>{{ a.foto_resumo }}</em>
+              {% if a.foto_confianca %}
+                <span class="confianca conf-{{ a.foto_confianca }}">confiança {{ a.foto_confianca }}</span>
+              {% endif %}
+            </p>
+          {% endif %}
+        </div>
+      {% endif %}
+
+      <a class="botao" href="{{ a.url }}" target="_blank" rel="noopener">
+        {{ ic.icone('expandir') }} Ver no imovelweb
+      </a>
+    </aside>
+  </main>
+
+  {% if a.fotos and a.fotos | length > 1 %}
+  <script>
+    (function () {
+      const urls    = {{ a.fotos_web | tojson }};
+      const img     = document.getElementById("foto-atual");
+      const posEl   = document.getElementById("pos-atual");
+      const linkOrg = document.getElementById("link-original");
+      const btnAnt  = document.getElementById("btn-ant");
+      const btnProx = document.getElementById("btn-prox");
+      const minis   = Array.from(document.querySelectorAll(".carrossel-mini"));
+
+      let idx = 0;
+
+      function mostrar(novo, rolar = true) {
+        // navegação circular: ao passar do fim volta para o começo
+        idx = (novo + urls.length) % urls.length;
+
+        img.src = urls[idx];
+        posEl.textContent = idx + 1;
+        linkOrg.href = urls[idx];
+
+        minis.forEach((m, i) => m.classList.toggle("ativa", i === idx));
+
+        if (rolar && minis[idx]) {
+          minis[idx].scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+        }
+      }
+
+      btnAnt.addEventListener("click", () => mostrar(idx - 1));
+      btnProx.addEventListener("click", () => mostrar(idx + 1));
+      minis.forEach((m) => m.addEventListener("click", () => mostrar(+m.dataset.idx)));
+
+      // teclado (setas esquerda/direita)
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowLeft")  mostrar(idx - 1);
+        if (e.key === "ArrowRight") mostrar(idx + 1);
+      });
+
+      // swipe: arrastar horizontalmente no palco
+      const palco = document.querySelector(".carrossel-palco");
+      let xInicial = null;
+      palco.addEventListener("pointerdown", (e) => { xInicial = e.clientX; });
+      palco.addEventListener("pointerup", (e) => {
+        if (xInicial === null) return;
+        const delta = e.clientX - xInicial;
+        if (Math.abs(delta) > 40) mostrar(delta < 0 ? idx + 1 : idx - 1);
+        xInicial = null;
+      });
+
+      mostrar(0, false);
+    })();
+  </script>
+  {% endif %}
+</body>
+</html>

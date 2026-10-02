@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Imóveis — Vila Mangalot / Parque São Domingo</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="marca">
+      {{ ic.icone('casa') }}
+      Caça-imóveis
+      <span class="marca-sub">Vila Mangalot · Pq. São Domingo</span>
+    </h1>
+    <span class="topbar-espaco"></span>
+    <span class="pill">{{ ic.icone('imovel') }} {{ total }} anúncios</span>
+  </header>
+
+  <div class="painel-filtros">
+    <form class="filtros" method="get">
+
+      {# Linha 1 — campos de valor: texto, número, seleção e as ações #}
+      <div class="filtros-linha campos">
+        <label>Bairro
+          <select name="bairro">
+            <option value="">Todos</option>
+            {% for b in bairros %}
+              <option value="{{ b }}" {% if filtros.bairro == b %}selected{% endif %}>{{ b | bairro }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label>Preço máx.
+          <input type="number" name="preco_max" placeholder="R$ 900.000"
+                 value="{{ filtros.preco_max }}" step="10000" min="0">
+        </label>
+
+        <label>Terreno mín. (m²)
+          <input type="number" name="terreno_min" placeholder="200"
+                 value="{{ filtros.terreno_min }}" step="10" min="0">
+        </label>
+
+        <label>Quartos mín.
+          <input type="number" name="quartos_min" placeholder="3"
+                 value="{{ filtros.quartos_min }}" min="1" max="10">
+        </label>
+
+        <label>Piso do quintal
+          <select name="piso_quintal">
+            <option value="">Qualquer</option>
+            <option value="terra"  {% if filtros.piso_quintal=='terra'  %}selected{% endif %}>Com terra batida</option>
+            <option value="grama"  {% if filtros.piso_quintal=='grama'  %}selected{% endif %}>Gramado</option>
+            <option value="cimento"{% if filtros.piso_quintal=='cimento'%}selected{% endif %}>Cimentado</option>
+            <option value="misto"  {% if filtros.piso_quintal=='misto'  %}selected{% endif %}>Misto</option>
+          </select>
+        </label>
+
+        <label>Ordenar
+          <select name="ordem">
+            <option value="score"     {% if filtros.ordem=='score' %}selected{% endif %}>Melhor match</option>
+            <option value="preco_asc" {% if filtros.ordem=='preco_asc' %}selected{% endif %}>Menor preço</option>
+            <option value="preco_desc"{% if filtros.ordem=='preco_desc' %}selected{% endif %}>Maior preço</option>
+            <option value="terreno"   {% if filtros.ordem=='terreno' %}selected{% endif %}>Maior terreno</option>
+            <option value="recentes"  {% if filtros.ordem=='recentes' %}selected{% endif %}>Recentes</option>
+          </select>
+        </label>
+
+        <div class="filtros-acoes">
+          <button class="btn-primario" type="submit">
+            {{ ic.icone('lupa') }} Filtrar
+          </button>
+          {% if filtros_ativos %}
+            <a class="btn-secundario" href="{{ url_for('index') }}">
+              {{ ic.icone('fechar') }} Limpar
+            </a>
+          {% endif %}
+        </div>
+      </div>
+
+      {# Linha 2 — só marcações. O olho indica que o dado vem da análise
+         das FOTOS, não do texto do anúncio. #}
+      <div class="filtros-linha opcoes">
+        <span class="opcoes-rotulo">Filtrar por</span>
+
+        <label class="check">
+          <input type="checkbox" name="so_quintal" value="1"
+                 {% if filtros.so_quintal %}checked{% endif %}>
+          Só com quintal
+        </label>
+
+        <label class="check">
+          <input type="checkbox" name="so_arvores" value="1"
+                 {% if filtros.so_arvores %}checked{% endif %}>
+          {{ ic.icone('olho', 'ico ico-sm') }} Só com árvores
+        </label>
+
+        <span class="opcoes-divisor" aria-hidden="true"></span>
+
+        <label class="check">
+          <input type="checkbox" name="so_financiamento" value="1"
+                 {% if filtros.so_financiamento %}checked{% endif %}>
+          Aceita financiamento
+        </label>
+
+        <span class="opcoes-divisor" aria-hidden="true"></span>
+
+        <label class="check">
+          <input type="checkbox" name="so_cuidado" value="1"
+                 {% if filtros.so_cuidado %}checked{% endif %}>
+          {{ ic.icone('olho', 'ico ico-sm') }} Bem cuidado (4+)
+        </label>
+
+        <label class="check">
+          <input type="checkbox" name="com_problemas" value="1"
+                 {% if filtros.com_problemas %}checked{% endif %}>
+          {{ ic.icone('olho', 'ico ico-sm') }} Só com problemas
+        </label>
+      </div>
+    </form>
+
+    {% if chips %}
+      <div class="chips">
+        <span class="rotulo">Filtros ativos:</span>
+        {% for c in chips %}
+          <a class="chip" href="{{ c.url }}" title="Remover este filtro">
+            {{ c.rotulo }}
+            {{ ic.icone('fechar') }}
+          </a>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="resultados">
+    <p class="contagem">
+      {% if filtros_ativos %}
+        <b>{{ total }}</b> imóve{% if total == 1 %}l{% else %}is{% endif %} encontrado{% if total != 1 %}s{% endif %}
+      {% else %}
+        <b>{{ total }}</b> imóveis no total
+      {% endif %}
+    </p>
+    {% if total %}
+      <p class="dica">Clique em um card para ver a galeria completa</p>
+    {% endif %}
+  </div>
+
+  <main class="grid">
+    {% for a in cards %}
+      <article class="card">
+        <div class="thumb" data-thumb>
+          <a class="thumb-link" href="{{ url_for('detalhe', anuncio_url=a.url) }}"
+             aria-label="Ver detalhes: {{ a.titulo or 'anúncio' }}">
+            {% if a.fotos_card %}
+              {% for f in a.fotos_card %}
+                <img class="capa{% if not loop.first %} oculta{% endif %}"
+                     loading="lazy" src="{{ url_for('foto', caminho=f) }}" alt="">
+              {% endfor %}
+            {% else %}
+              <div class="sem-foto">
+                {{ ic.icone('imovel', 'ico') }}
+                <span>sem foto</span>
+              </div>
+            {% endif %}
+          </a>
+
+          {% if a.match_quintal %}
+            <span class="badge-quintal" title="Tem quintal/área externa (score {{ a.score_quintal }})">
+              {{ ic.icone('arvore') }} quintal
+            </span>
+          {% endif %}
+
+          {# Selo da esquerda: o que o TEXTO diz (verde = área externa).
+             Selo da direita: o que a FOTO mostra (piso do quintal).
+             Terra tem precedência sobre "misto" no rótulo: um quintal
+             misto COM terra ainda é, para quem busca, um quintal de terra. #}
+          {% set piso_visivel =
+               'terra' if a.foto_quintal_terra == 1
+               else (a.foto_piso_quintal if a.foto_piso_quintal and a.foto_piso_quintal != 'incerto' else None) %}
+          {% if piso_visivel %}
+            <span class="badge-quintal badge-visao {% if piso_visivel == 'terra' %}terra{% endif %}"
+                  title="{% if piso_visivel == 'terra' %}Há quintal com terra batida nas fotos (análise visual){% else %}Piso do quintal identificado nas fotos{% endif %}">
+              {{ ic.icone('arvore') }} {{ piso_visivel }}
+            </span>
+          {% endif %}
+
+          {% if a.fotos_card | length > 1 %}
+            <button class="thumb-seta ant" type="button" data-dir="-1" aria-label="Foto anterior">
+              {{ ic.icone('seta-antes') }}
+            </button>
+            <button class="thumb-seta prox" type="button" data-dir="1" aria-label="Próxima foto">
+              {{ ic.icone('seta-prox') }}
+            </button>
+            <span class="thumb-contador"
+                  title="{% if a.n_fotos > a.fotos_card | length %}O anúncio tem {{ a.n_fotos }} fotos; veja todas na página do imóvel{% else %}{{ a.n_fotos }} fotos{% endif %}">
+              {{ ic.icone('expandir') }}
+              <span class="pos">1</span>/{{ a.fotos_card | length }}{% if a.n_fotos > a.fotos_card | length %}+{% endif %}
+            </span>
+          {% endif %}
+        </div>
+
+        <a class="card-link" href="{{ url_for('detalhe', anuncio_url=a.url) }}">
+          <div class="info">
+            <div class="preco">{{ a.preco | moeda }}</div>
+            <h3 class="titulo">{{ a.titulo or a.url }}</h3>
+            <p class="endereco">
+              {{ ic.icone('pin') }}
+              {{ a.endereco or (a.bairro | bairro) }}
+            </p>
+
+            <ul class="specs">
+              {% if a.quartos %}
+                <li>{{ ic.icone('cama') }} {{ a.quartos }} quarto{% if a.quartos != 1 %}s{% endif %}</li>
+              {% endif %}
+              {% if a.banheiros %}
+                <li>{{ ic.icone('chuveiro') }} {{ a.banheiros }} banh.</li>
+              {% endif %}
+              {% if a.vagas %}
+                <li>{{ ic.icone('carro') }} {{ a.vagas }} vaga{% if a.vagas != 1 %}s{% endif %}</li>
+              {% endif %}
+              {% if a.area_construida %}
+                <li>{{ ic.icone('area') }} {{ a.area_construida | m2 }}</li>
+              {% endif %}
+              {% if a.area_terreno %}
+                <li class="destaque" title="Área do terreno">
+                  {{ ic.icone('terreno') }} {{ a.area_terreno | m2 }} terreno
+                </li>
+              {% endif %}
+              {% if a.aceita_financiamento == 1 %}
+                <li class="confirma" title="O anúncio indica que aceita financiamento">
+                  {{ ic.icone('banco') }} financiamento
+                </li>
+              {% elif a.aceita_financiamento == 0 %}
+                <li class="recusa" title="O anúncio indica que NÃO aceita financiamento">
+                  {{ ic.icone('fechar') }} sem financiamento
+                </li>
+              {% endif %}
+            </ul>
+
+            {% if a.detalhe_ok and not a.area_terreno %}
+              <div class="card-aviso" title="A página do anúncio não informa a área do terreno">
+                {{ ic.icone('bussola') }} terreno não informado
+              </div>
+            {% endif %}
+
+            {% if a.foto_ok and (a.foto_cuidado is not none or a.foto_arejamento is not none) %}
+              <div class="visao">
+                <span class="visao-rotulo" title="Notas geradas pela análise das fotos com IA — independentes do texto do anúncio">
+                  {{ ic.icone('olho') }} visto nas fotos
+                </span>
+                <div class="visao-notas">
+                  {% if a.foto_cuidado is not none %}
+                    <span class="nota" title="Conservação: 5 = impecável, 1 = degradado">
+                      cuidado
+                      <span class="bolinhas">
+                        {% for i in range(1, 6) %}
+                          <i class="{% if i <= a.foto_cuidado %}on{% endif %}{% if a.foto_cuidado <= 2 %} ruim{% elif a.foto_cuidado == 3 %} medio{% endif %}"></i>
+                        {% endfor %}
+                      </span>
+                    </span>
+                  {% endif %}
+                  {% if a.foto_arejamento is not none %}
+                    <span class="nota" title="Arejamento (janelas, ventilação cruzada): 5 = muito arejado">
+                      arejamento
+                      <span class="bolinhas">
+                        {% for i in range(1, 6) %}
+                          <i class="{% if i <= a.foto_arejamento %}on{% endif %}"></i>
+                        {% endfor %}
+                      </span>
+                    </span>
+                  {% endif %}
+                  {% if a.foto_iluminacao is not none %}
+                    <span class="nota" title="Luz natural percebida nas fotos: 5 = muito claro">
+                      luz
+                      <span class="bolinhas">
+                        {% for i in range(1, 6) %}
+                          <i class="{% if i <= a.foto_iluminacao %}on{% endif %}"></i>
+                        {% endfor %}
+                      </span>
+                    </span>
+                  {% endif %}
+                </div>
+
+                {% if a.foto_extras %}
+                  <div class="visao-tags">
+                    {% for ex in a.foto_extras.split(',')[:4] %}
+                      <span class="tag-extra">{{ ex | replace('_', ' ') }}</span>
+                    {% endfor %}
+                    {# "misto" esconde a informação mais útil quando há terra #}
+                    {% if a.foto_quintal_terra == 1 and 'quintal_grande' not in a.foto_extras %}
+                      <span class="tag-extra terra">{{ ic.icone('arvore', 'ico ico-sm') }} terra</span>
+                    {% endif %}
+                  </div>
+                {% elif a.foto_quintal_terra == 1 %}
+                  <div class="visao-tags">
+                    <span class="tag-extra terra">{{ ic.icone('arvore', 'ico ico-sm') }} terra no quintal</span>
+                  </div>
+                {% endif %}
+
+                {% if a.foto_problemas %}
+                  <div class="visao-problemas">
+                    {{ ic.icone('alerta') }}
+                    <span>{{ a.foto_problemas.split(',') | map('replace', '_', ' ') | join(' · ') }}</span>
+                  </div>
+                {% endif %}
+              </div>
+            {% endif %}
+          </div>
+        </a>
+      </article>
+    {% else %}
+      <div class="vazio">
+        {{ ic.icone('lupa', 'ico') }}
+        <h2>Nenhum imóvel encontrado</h2>
+        <p>Nenhum anúncio atende a todos esses filtros. Tente afrouxar algum critério, como o preço máximo ou o terreno mínimo.</p>
+        <a class="btn-primario" href="{{ url_for('index') }}">
+          {{ ic.icone('fechar') }} Limpar filtros
+        </a>
+      </div>
+    {% endfor %}
+  </main>
+
+  <footer>
+    Coletado de imovelweb.com.br · dados salvos localmente
+    {% if total %} · {{ total }} imóve{% if total == 1 %}l{% else %}is{% endif %}{% endif %}
+  </footer>
+
+  <script>
+    // Mini-carrossel nos cards: setas ‹ › trocam a foto sem sair da listagem
+    document.querySelectorAll(".thumb").forEach(function (thumb) {
+      const capas = thumb.querySelectorAll("img.capa");
+      if (capas.length <= 1) return;
+
+      const posEl = thumb.querySelector(".thumb-contador .pos");
+      let idx = 0;
+
+      function mostrar(novo) {
+        idx = (novo + capas.length) % capas.length;
+        capas.forEach(function (img, i) {
+          img.classList.toggle("oculta", i !== idx);
+        });
+        if (posEl) posEl.textContent = idx + 1;
+      }
+
+      thumb.querySelectorAll(".thumb-seta").forEach(function (btn) {
+        btn.addEventListener("click", function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          mostrar(idx + Number(btn.dataset.dir));
+        });
+      });
+
+      // swipe horizontal no card
+      let xInicial = null;
+      thumb.addEventListener("pointerdown", function (e) { xInicial = e.clientX; });
+      thumb.addEventListener("pointerup", function (e) {
+        if (xInicial === null) return;
+        const delta = e.clientX - xInicial;
+        if (Math.abs(delta) > 40) mostrar(delta < 0 ? idx + 1 : idx - 1);
+        xInicial = null;
+      });
+    });
+  </script>
+</body>
+</html>

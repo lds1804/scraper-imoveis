@@ -1,0 +1,90 @@
+{# Biblioteca de ícones SVG (stroke, herdam a cor do texto).
+
+   Uso:  {{ ic.icone('cama') }}
+         {{ ic.icone('pin', 'ico ico-sm') }}
+#}
+{% macro icone(nome, cls='ico') -%}
+<svg class="{{ cls }}" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+     stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+     aria-hidden="true" focusable="false">
+{%- if nome == 'casa' -%}
+  <path d="M3 10.6 12 3.5l9 7.1V20a1 1 0 0 1-1 1h-4.5v-6h-7v6H4a1 1 0 0 1-1-1z"/>
+{%- elif nome == 'cama' -%}
+  <path d="M3 18v-7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7"/>
+  <path d="M3 18h18"/>
+  <path d="M7 9V7.5A1.5 1.5 0 0 1 8.5 6h7A1.5 1.5 0 0 1 17 7.5V9"/>
+  <path d="M7 13h3"/>
+{%- elif nome == 'chuveiro' -%}
+  <path d="M4 20V7a4 4 0 0 1 8 0"/>
+  <path d="M4 7h8"/>
+  <path d="M6.5 11v.01M10 11v.01M6.5 15v.01M10 15v.01M8.25 19v.01"/>
+{%- elif nome == 'carro' -%}
+  <path d="M5 17h14"/>
+  <path d="M4 17v-3.2a2 2 0 0 1 .2-.9l1.9-4.2A2 2 0 0 1 7.9 7.5h8.2a2 2 0 0 1 1.8 1.2l1.9 4.2a2 2 0 0 1 .2.9V17"/>
+  <path d="M4 13.5h16"/>
+  <circle cx="7.5" cy="17" r="1.6"/><circle cx="16.5" cy="17" r="1.6"/>
+{%- elif nome == 'area' -%}
+  <rect x="3.5" y="3.5" width="17" height="17" rx="2"/>
+  <path d="M3.5 15 15 3.5"/>
+  <path d="M8.5 20.5 20.5 8.5"/>
+{%- elif nome == 'terreno' -%}
+  <path d="M4 19h16"/>
+  <path d="M5 19v-6.5L12 8l7 4.5V19"/>
+  <path d="M9 19v-3.5h6V19"/>
+{%- elif nome == 'arvore' -%}
+  <path d="M12 3.5 7.5 9h2L6.5 13.5h3L6 18h12l-3.5-4.5h3L14.5 9h2z"/>
+  <path d="M12 18v3"/>
+{%- elif nome == 'pin' -%}
+  <path d="M12 21s6.5-5.8 6.5-10.3A6.5 6.5 0 1 0 5.5 10.7C5.5 15.2 12 21 12 21z"/>
+  <circle cx="12" cy="10.5" r="2.4"/>
+{%- elif nome == 'lupa' -%}
+  <circle cx="10.5" cy="10.5" r="6.5"/>
+  <path d="m15.4 15.4 4.1 4.1"/>
+{%- elif nome == 'ajustar' -%}
+  <path d="M4 7h10M18 7h2M4 17h4M12 17h8"/>
+  <circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>
+{%- elif nome == 'ordenar' -%}
+  <path d="M7 4v16M7 20l-3-3M7 20l3-3"/>
+  <path d="M17 20V4M17 4l-3 3M17 4l3 3"/>
+{%- elif nome == 'raio' -%}
+  <path d="M13 2.5 5 13.5h5.5L10 21.5l8-11h-5.5z"/>
+{%- elif nome == 'seta-antes' -%}
+  <path d="M14.5 5 8 12l6.5 7"/>
+{%- elif nome == 'seta-prox' -%}
+  <path d="M9.5 5 16 12l-6.5 7"/>
+{%- elif nome == 'expandir' -%}
+  <path d="M14 4h6v6M20 4l-6.5 6.5"/>
+  <path d="M10 20H4v-6M4 20l6.5-6.5"/>
+{%- elif nome == 'megafone' -%}
+  <path d="M4 10.5v3a1 1 0 0 0 1 1h2l6 4v-13l-6 4H5a1 1 0 0 0-1 1z"/>
+  <path d="M16.5 9.5a4 4 0 0 1 0 5"/>
+{%- elif nome == 'bussola' -%}
+  <circle cx="12" cy="12" r="8.5"/>
+  <path d="m15.5 8.5-2 5-5 2 2-5z"/>
+{%- elif nome == 'check' -%}
+  <path d="m5 12.5 4.5 4.5L19 7.5"/>
+{%- elif nome == 'fechar' -%}
+  <path d="M6.5 6.5 17.5 17.5M17.5 6.5 6.5 17.5"/>
+{%- elif nome == 'moeda' -%}
+  <circle cx="12" cy="12" r="8.5"/>
+  <path d="M12 7.5v9M14.5 9.8c-.5-.8-1.4-1.3-2.5-1.3-1.4 0-2.4.8-2.4 1.9s.9 1.6 2.6 2c1.9.4 2.8 1 2.8 2.2 0 1.2-1.1 2-2.7 2-1.3 0-2.3-.5-2.8-1.4"/>
+{%- elif nome == 'imovel' -%}
+  <path d="M4 20V9.6L12 3.5l8 6.1V20"/>
+  <path d="M9.5 20v-6h5v6"/>
+  <path d="M4 20h16"/>
+{%- elif nome == 'banco' -%}
+  <path d="M3.5 9.5 12 4l8.5 5.5"/>
+  <path d="M5.5 9.5v8M9.5 9.5v8M14.5 9.5v8M18.5 9.5v8"/>
+  <path d="M3.5 20.5h17"/>
+{%- elif nome == 'cifrao' -%}
+  <path d="M12 3v18"/>
+  <path d="M15.8 7.2c-.7-1-2-1.6-3.6-1.6-2.1 0-3.6 1.1-3.6 2.7s1.3 2.3 3.8 2.9c2.7.6 4 1.4 4 3.2 0 1.7-1.6 2.9-4 2.9-1.9 0-3.4-.7-4.1-1.9"/>
+{%- elif nome == 'olho' -%}
+  <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/>
+  <circle cx="12" cy="12" r="3"/>
+{%- elif nome == 'alerta' -%}
+  <path d="M12 3.5 21 19H3z"/>
+  <path d="M12 9.5v4.5M12 17v.01"/>
+{%- endif -%}
+</svg>
+{%- endmacro %}
