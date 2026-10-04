@@ -3,7 +3,7 @@
 > Lista de tarefas do projeto, organizada por tema.
 > Legenda: ✅ feito · 🔶 parcial · ⬜ pendente
 >
-> Última revisão: 2026-10-03
+> Última revisão: 2026-10-04
 
 ---
 
@@ -59,8 +59,20 @@
 
 ## 3. Dados externos e pontuação
 
-- [ ] **GeoSampa** — buscar mais dados do imóvel (área oficial, uso do solo)
+- [x] **GeoSampa** — buscar mais dados do imóvel (área oficial, uso do solo)
       e **valor venal**/IPTU, se a API disponibilizar.
+      Feito, e a resposta tem duas partes:
+      **Área oficial:** o WFS do GeoSampa (`geoportal:lote_cidadao`) fornece
+      `area_terreno` e `area_construida` por lote. **26.475 lotes** ingeridos.
+      Armadilha: o campo é `cd_tipo_terreno_imovel` (não `dc_`), e o GeoSampa
+      abrevia diferente da prefeitura (`GAL`=GENERAL, `CON`=CONEGO,
+      `COMEN`=COMENDADOR) — sem tratar isso, a maioria das ruas vinha vazia.
+      Cobertura: **86%** dos anúncios com rua.
+      **Valor venal:** a prefeitura **não publica** o venal por imóvel. Mas o
+      ITBI traz o venal em **98% das transações**, junto com o preço — então a
+      **razão venal/preço é mensurável** por região (mediana da cidade: 0,82).
+      `valor_venal = preco_pedido * razao_da_regiao`, com **100% de cobertura**.
+      É uma projeção, não uma consulta — a interface diz isso explicitamente.
 - [ ] **API do JEV** — gerar uma **nota** de quão bem o imóvel encaixa no que
       foi pedido.
       ⚠️ Ponto de atenção já registrado no requisito: precisa ser
@@ -108,10 +120,15 @@
       financiadas R$ 5.927/m² contra R$ 4.407/m² das diretas (−26%).
       A cascata tenta **só financiadas primeiro**. Gradiente confirmado:
       0% financiadas → razão 1,57 · 100% financiadas → razão **0,96**.
-- [ ] **Levar a comparação para a interface web**
-      Hoje só existe pela linha de comando. Falta a coluna "vs. ITBI" na
-      listagem, um filtro "abaixo da mediana" e o bloco de transações na
-      página de detalhe.
+- [x] **Levar a comparação para a interface web**
+      Cada card traz o comparativo com o mercado, e a página de detalhe mostra
+      **três medidas independentes**: (1) preço praticado (ITBI), (2) valor
+      venal projetado e (3) área oficial do cadastro (GeoSampa). Há filtro
+      "abaixo do preço praticado" e ordenação por "mais abaixo do mercado",
+      além do bloco com as transações usadas na comparação.
+- [x] **Valor venal na interface**
+      Rótulo deixa claro que é **projeção de referência tributária**, não
+      preço de mercado — serve para comparar com o IPTU.
 
 ## 4. Interface
 
@@ -122,21 +139,42 @@
 - [x] **Expor a análise das fotos na interface**
       Bloco "visto nas fotos" nos cards e na página de detalhe, + filtros
       por piso do quintal, árvores, conservação e problemas.
+- [x] **Simplificar os filtros**
+      "Conservação" e "com problemas" foram **removidos**: não filtravam bem
+      e ocupavam espaço. "Quintal" e "árvores" ganharam nomes mais claros.
+- [x] **Filtros de múltipla escolha** (bairro e piso do quintal)
+      O `<select multiple>` nativo exige Ctrl+clique e fecha a lista a cada
+      escolha — inutilizável na prática. Cada campo virou um botão que abre um
+      painel de caixas de marcação, com o resumo da escolha no próprio botão.
+      No servidor, `request.args.get` virou `getlist` (com `get`, marcar três
+      bairros fazia a busca considerar **só o primeiro**, ignorando os outros
+      em silêncio).
 - [ ] Novas melhorias de layout/UX a critério.
 
 ## 5. Qualidade e infraestrutura
 
-- [ ] **Testes unitários** — backend e interface
-      Hoje existem apenas scripts manuais (`testar_parser.py`,
-      `testar_playwright.py`, `verificar_localidade.py`,
-      `verificar_financiamento.py`); não há suíte automatizada nem pasta
-      `tests/`.
-- [ ] **Estruturar o backend**
-      Separar camadas e mover configuração para variáveis de ambiente.
-- [ ] **Deploy no GitHub**, sem subir segredos nem arquivos desnecessários
-      🔶 O `.gitignore` já cobre `.env`, `imoveis.db`, `fotos/`,
-      `html_ponte/`, `debug_html/`, `playwright-profile/` e `.venv/`.
-      Falta inicializar o repositório e publicar.
+- [x] **Testes automatizados** — backend e interface
+      Pasta `tests/` criada, com `_bootstrap.py` que põe `src/` no path.
+      **`testar_web.py`: 48 verificações** (rotas, cada filtro reduz o total,
+      filtros combinados, filtros múltiplos, chips removem só a si mesmos,
+      paginação, as três medidas de valor, links da listagem, 404 em anúncio
+      inexistente) e **`testar_tipo.py`: 32**. Também `medir_rotas.py` para
+      medir o tempo de cada rota e `conferir_segredos.py` para varrer o
+      repositório antes de publicar.
+- [x] **Estruturar o backend**
+      Código em `src/`; os arquivos da raiz viraram atalhos de duas linhas
+      (`from _runner import executar; executar('main')`). Configuração
+      centralizada em `config.py` (`config.caminho(...)` resolve os caminhos
+      de dados, `VISAO_*` controla a análise visual), com segredos no `.env`.
+- [x] **Deploy no GitHub**, sem subir segredos nem arquivos desnecessários
+      O `.gitignore` cobre `.env`, `imoveis.db`, `fotos/`, `html_ponte/`,
+      `debug_html/`, `playwright-profile/` e `.venv/`. Repositório publicado
+      e **clone limpo validado** a partir do GitHub.
+      **Bug encontrado no conferidor de segredos:** ele calculava a raiz como
+      `dirname(__file__)` — que aponta para `tests/` — e por isso lia 9
+      arquivos em vez de 106, declarando o repositório "seguro para publicar"
+      **sem nunca ter lido o `.env`**. Uma verificação que não verifica é pior
+      que nenhuma.
 - [ ] **Pipeline de deploy na AWS** (free tier)
       Lambdas para os crawlers e para o site, com execução diária.
 - [x] **Não salvar anúncios repetidos**
@@ -159,3 +197,18 @@
   feita em ASCII puro porque o terminal do Windows não lida bem com Unicode.
 - **Retomada automática**: interromper e rodar de novo não rebaixa nem
   reanalisa o que já foi feito.
+- **Conserto do travamento da interface** (não estava no pedido; apareceu no
+  uso). `GET /` *nunca* retornava — sem erro, sem mensagem. Duas causas, as
+  duas medidas e não deduzidas:
+  1. A tabela `fotos` não tinha índice em `anuncio_url`. A consulta de fotos
+     era feita **uma vez por card**, e cada uma varria as 57 mil linhas
+     (`SCAN`): **44,5 ms × 4.793 cards = 213 s**. Com o índice a consulta caiu
+     para 0,118 ms.
+  2. A página renderizava **4.793 cards de uma vez**: 33,8 MB. Agora são 60
+     por página (com paginação que preserva os filtros) — **514 KB**.
+  Resultado: a home saiu de 10,8 s para **1,0 s**, e o total das rotas de
+  37,3 s para 2,4 s.
+  **Lição de método:** eu apontei duas causas erradas antes de medir. E um
+  travamento é **invisível** para `print` — a saída só aparece quando o
+  processo termina, então a única forma de ver onde para é `python -u` com
+  redirecionamento para arquivo.
