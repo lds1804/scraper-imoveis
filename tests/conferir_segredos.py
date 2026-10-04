@@ -22,7 +22,12 @@ import os
 import re
 import sys
 
-RAIZ = os.path.dirname(os.path.abspath(__file__))
+# A RAIZ e o PAI da pasta deste arquivo: o script mora em `tests/`, e o
+# projeto (com `.git`, `src/`, `.env`) esta um nivel acima. Usar
+# `dirname(__file__)` apontava para `tests/`, entao a varredura do disco e a
+# do git rodavam DENTRO de `tests/` — liam 9 arquivos em vez de ~70. Um
+# scanner que subconta e pior que nenhum: da falsa confianca.
+RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Pastas que nunca entram no repositório (espelham o .gitignore).
 IGNORAR_DIRS = {
