@@ -334,26 +334,40 @@ def razao_da_regiao(conn: sqlite3.Connection, cep: str) -> tuple[float, str, int
 
 
 def estimar(conn: sqlite3.Connection, cep: str, preco: float,
-            rua_chave: str = "") -> dict | None:
-    """Estima o valor venal a partir do preço pedido e da razão da região.
+            rua_chave: str = "", mediana_mercado: float | None = None) -> dict | None:
+    """Estima o valor venal a partir da razão venal/mercado da região.
 
     `rua_chave` é opcional e só serve para deduzir o CEP quando o anúncio não
     publica um (ver `cep_efetivo`). Sem ele o comportamento é o antigo.
+
+    `mediana_mercado` é o preço de mercado da região (vindo do ITBI, do
+    `comparar_itbi.py`). Quando existe, a razão é aplicada SOBRE ELE, e não
+    sobre o preço pedido.
+
+    POR QUÊ: a razão venal/preço é medida sobre o preço DECLARADO nas vendas,
+    mas o preço PEDIDO no anúncio costuma ficar ~23% acima do praticado.
+    Aplicar a razão sobre o pedido inflava o valor venal — medido: o "valor
+    venal" projetado ficava ACIMA da mediana de mercado em 45% dos casos,
+    quando o VVR real fica sistematicamente ABAIXO (razão ~0,82).
     """
-    if not preco:
+    if not preco and not mediana_mercado:
         return None
     cep_usado, origem = cep_efetivo(conn, cep, rua_chave)
     razao, regiao, n = razao_da_regiao(conn, cep_usado)
     if not razao:
         return None
+    # A base é a melhor estimativa do valor de MERCADO: a mediana do ITBI
+    # quando existe, senão o pedido. O venal é sempre uma fração dessa base.
+    base = mediana_mercado or preco
     return {
-        "valor_venal": preco * razao,
+        "valor_venal": base * razao,
         "razao": razao,
         "regiao": regiao,
         "n_pares": n,
         "pct_do_preco": 100 * razao,
         "origem_cep": origem or "nenhuma",
         "cep_usado": cep_usado,
+        "base": base,
     }
 
 
@@ -377,14 +391,28 @@ def calcular(conn: sqlite3.Connection, refazer: bool = False,
     if limite:
         anuncios = anuncios[:limite]
 
+    # A mediana de MERCADO (do comparar_itbi) serve de base para o venal, em
+    # vez do preço pedido — ver a docstring de `estimar`. Só se a tabela
+    # existir e tiver dado; senão, cai de volta no pedido.
+    medianas: dict[str, float] = {}
+    if _tem_tabela(conn, "comparacoes"):
+        medianas = {
+            r["anuncio_url"]: r["mediana"]
+            for r in conn.execute(
+                "SELECT anuncio_url, mediana FROM comparacoes "
+                "WHERE COALESCE(mediana,0) > 0")
+        }
+
     if verbose:
-        print(f"anúncios a calcular: {len(anuncios):,d}")
+        print(f"anúncios a calcular: {len(anuncios):,d} "
+              f"({len(medianas):,d} com mediana de mercado)")
 
     feitos = sem = 0
     origens: dict[str, int] = {}
     t0 = time.time()
     for a in anuncios:
-        r = estimar(conn, a["cep"] or "", a["preco"], a["rua_chave"] or "")
+        r = estimar(conn, a["cep"] or "", a["preco"], a["rua_chave"] or "",
+                    medianas.get(a["url"]))
         if not r:
             sem += 1
             continue
