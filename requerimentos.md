@@ -127,7 +127,10 @@ está demonstrado.
       Armadilha: o campo é `cd_tipo_terreno_imovel` (não `dc_`), e o GeoSampa
       abrevia diferente da prefeitura (`GAL`=GENERAL, `CON`=CONEGO,
       `COMEN`=COMENDADOR) — sem tratar isso, a maioria das ruas vinha vazia.
-      Cobertura: **86%** dos anúncios com rua.
+      Cobertura: **86% dos anúncios com rua** (2.172 de 2.533). Só 53% da base
+      tem rua — os portais que não publicam CEP também são os que mais omitem
+      o logradouro. Vale lembrar que 86% é sobre quem tem rua, **não** sobre a
+      base inteira (aí são 45%).
       **Valor venal:** a prefeitura **não publica** o venal por imóvel. Mas o
       ITBI traz o venal em **98% das transações**, junto com o preço — então a
       **razão venal/preço é mensurável** por região (mediana da cidade: 0,82).
@@ -166,7 +169,9 @@ está demonstrado.
 - [x] **Comparar o preço pedido com o preço praticado**
       `src/comparar_itbi.py` — compara em **R$/m²** numa cascata de
       `rua+cep` → `rua` → `cep`, exigindo área parecida (±25%).
-      **2.128 anúncios comparados (83%).**
+      **2.146 anúncios comparados = 45% da base**, e **85% dos que têm rua**.
+      (O número antigo aqui era "2.128 = 83%", que era a fração dos 178
+      anúncios de então — ao crescer a base, a fração real caiu.)
 - [x] **Listar as transações que embasaram cada comparação**
       Tabela `comparacoes_detalhe` + `--detalhar <url>`: mostra data, área,
       valor corrigido e endereço de cada venda usada — para auditar, em vez
