@@ -29,8 +29,9 @@
            painel de checkboxes. Os marcados aparecem resumidos no próprio botão,
            então dá para ler o filtro sem abrir o painel. #}
         <div class="multi" data-multi>
-          <button type="button" class="multi-botao" aria-expanded="false">
-            <span class="multi-rotulo">Bairro</span>
+          <span class="multi-rotulo" id="rot-bairro">Bairro</span>
+          <button type="button" class="multi-botao" aria-expanded="false"
+                  aria-labelledby="rot-bairro">
             <span class="multi-valor">
               {% if filtros.bairro | length == 0 %}
                 Todos
@@ -72,8 +73,9 @@
         </label>
 
         <div class="multi" data-multi>
-          <button type="button" class="multi-botao" aria-expanded="false">
-            <span class="multi-rotulo">Quintal</span>
+          <span class="multi-rotulo" id="rot-quintal">Quintal</span>
+          <button type="button" class="multi-botao" aria-expanded="false"
+                  aria-labelledby="rot-quintal">
             <span class="multi-valor">
               {% if filtros.piso_quintal | length == 0 %}
                 Qualquer

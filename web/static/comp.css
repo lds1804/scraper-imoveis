@@ -279,18 +279,31 @@
    O botão usa a mesma linguagem visual dos campos da barra de filtros
    (mesma altura, borda e raio) para não parecer um controle estranho no meio.
 --------------------------------------------------------------------------- */
-.multi { position: relative; }
+.multi {
+  position: relative;
+  display: flex; flex-direction: column; gap: 5px;  /* igual a `.filtros label` */
+}
 
+/* O rótulo do campo fica ACIMA do botão, exatamente como nos outros campos
+   da barra (`<label>Preço máx.<input></label>`). Antes ele ficava DENTRO do
+   botão, e o botão virava um bloco de duas linhas, visivelmente mais alto e
+   mais largo que os vizinhos — a barra deixava de ficar uniforme. */
+.multi-rotulo {
+  font-size: .72rem; font-weight: 600; color: var(--texto-2);
+  text-transform: uppercase; letter-spacing: .045em;
+}
+
+/* o controle fechado tem UMA linha só, com a mesma altura, padding, borda e
+   raio dos demais campos da barra */
 .multi-botao {
-  display: flex; flex-direction: column; gap: 5px;
-  align-items: flex-start;
+  display: block;
   position: relative;                 /* âncora do ::after (a seta) */
-  padding: 9px 30px 9px 12px;
+  padding: 9px 28px 9px 12px;
   border: 1px solid var(--linha-forte);
   border-radius: var(--r-sm);
   background: #fff;
   font-family: inherit; text-align: left;
-  min-width: 150px; max-width: 210px; cursor: pointer;
+  min-width: 122px; max-width: 190px; cursor: pointer;
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 .multi-botao:hover { border-color: #bcc6d4; }
@@ -299,15 +312,10 @@
   box-shadow: 0 0 0 3px var(--anel-foco);
 }
 
-/* o rótulo imita o dos outros campos (maiúsculo pequeno) para alinhar a linha */
-.multi-rotulo {
-  font-size: .72rem; font-weight: 600; color: var(--texto-2);
-  text-transform: uppercase; letter-spacing: .045em;
-}
 .multi-valor {
+  display: block;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: .87rem; font-weight: 500; color: var(--texto);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  max-width: 100%;
 }
 /* quando há escolha ativa, o botão se destaca — igual às pílulas marcadas */
 .multi.tem-escolha > .multi-botao {
@@ -341,18 +349,18 @@
 
    O que funciona: flutuante (não desloca nada) e ancorado à ESQUERDA do
    próprio botão, com largura e altura LIMITADAS. Como os campos da linha
-   estão afastados, os ~260 px de largura não alcançam o botão vizinho, e a
+   estão afastados, a largura de ~210 px não alcança o botão vizinho, e a
    lista rola dentro do painel em vez de crescer.
 --------------------------------------------------------------------------- */
 .multi-painel {
   position: absolute; z-index: 40;
-  top: calc(100% + 6px); left: 0;
-  width: 258px;
-  max-height: 264px; overflow-y: auto;
-  padding: 7px;
+  top: calc(100% + 4px); left: 0;
+  width: 208px;
+  max-height: 196px; overflow-y: auto;
+  padding: 4px;
   background: #fff;
   border: 1px solid var(--linha-forte);
-  border-radius: var(--r);
+  border-radius: var(--r-sm);
   box-shadow: var(--sombra-3);
 }
 
@@ -369,7 +377,7 @@
 .filtros .multi-opcao * {
   text-transform: none;
   letter-spacing: 0;
-  font-size: .84rem;
+  font-size: .82rem;
   font-weight: 400;
   color: var(--texto);
 }
@@ -377,14 +385,14 @@
   display: flex;
   flex-direction: row;          /* vence o column de `.filtros label` */
   align-items: center;
-  gap: 9px;
-  padding: 8px 10px;
+  gap: 8px;
+  padding: 4px 6px;
   border-radius: var(--r-sm);
   cursor: pointer; user-select: none;
 }
 .filtros .multi-opcao:hover { background: var(--accent-claro); }
 .filtros .multi-opcao input {
-  width: 16px; height: 16px; flex: 0 0 16px;
+  width: 14px; height: 14px; flex: 0 0 14px;
   min-width: 0; padding: 0; margin: 0;
   accent-color: var(--accent); cursor: pointer;
 }
@@ -393,13 +401,13 @@
 }
 
 .multi-acoes {
-  display: flex; justify-content: space-between; gap: 8px;
-  margin-top: 6px; padding: 7px 4px 2px;
+  display: flex; justify-content: flex-end; gap: 2px;
+  margin-top: 3px; padding: 3px 2px 0;
   border-top: 1px solid var(--linha);
 }
 .multi-acoes button {
-  border: 0; background: none; padding: 5px 8px;
-  font-family: inherit; font-size: .78rem; font-weight: 600;
+  border: 0; background: none; padding: 3px 6px;
+  font-family: inherit; font-size: .74rem; font-weight: 600;
   color: var(--muted); cursor: pointer; border-radius: var(--r-sm);
 }
 .multi-acoes button:hover { background: var(--accent-claro); color: var(--accent); }
