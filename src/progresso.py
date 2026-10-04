@@ -29,19 +29,62 @@ def _duracao(segundos: float) -> str:
 
 
 class Barra:
-    """Barra de progresso com contadores, ritmo e previsão de término."""
+    """Barra de progresso com contadores, ritmo e previsão de término.
 
-    def __init__(self, total: int, largura: int = 24, stream=None):
+    Serve para dois casos:
+
+      1. Um total conhecido de itens (ex.: analisar 178 anúncios).
+         Cria com `Barra(178)` e chama `passo()` a cada item.
+
+      2. Vários lotes de tamanho desconhecido (ex.: coletar por bairro, sem
+         saber quantos anúncios cada um tem). Cria com
+         `Barra.etapas(["Vila Mangalot", "City América", ...])`, chama
+         `iniciar_etapa()` e depois `contar()` conforme os itens chegam.
+
+    Os três níveis ligados por contexto aparecem numa linha só:
+      geral    -> quantas etapas concluíram  [####....]  2/21
+      etapa    -> nome da etapa atual        "City América"
+      atual    -> itens feitos nesta etapa   847 itens
+    """
+
+    def __init__(self, total: int, largura: int = 24, stream=None,
+                 rotulo: str = ""):
         self.total = max(1, total)
         self.largura = largura
         self.stream = stream or sys.stdout
+        self.rotulo = rotulo
         self.feitos = 0
         self.ok = 0
         self.erros = 0
         self.reaproveitados = 0
+        self.pulados = 0
+        self.extras: dict[str, int] = {}
         self.t0 = time.time()
         self._ultimo_desenho = 0.0
         self._largura_linha = 0
+        # por etapa (modo `etapas`)
+        self.modo_etapas = False
+        self.etapas: list[str] = []
+        self.etapa_atual = ""
+        self.etapa_indice = 0
+        self.itens_etapa = 0
+        self.itens_total = 0
+        self._t0_etapa = time.time()
+
+    # -- construtores -----------------------------------------------------
+    @classmethod
+    def etapas(cls, nomes: list[str], largura: int = 24, stream=None,
+               rotulo: str = "") -> "Barra":
+        """Barra para uma sequência de lotes (bairros, arquivos, páginas).
+
+        Como só se sabe o total de itens DEPOIS de percorrer cada lote, o
+        progresso geral é medido em etapas concluídas, e os itens da etapa
+        atual aparecem como contagem crescente.
+        """
+        b = cls(len(nomes) or 1, largura, stream, rotulo)
+        b.modo_etapas = True
+        b.etapas = list(nomes)
+        return b
 
     # -- estado -----------------------------------------------------------
     def passo(self, ok: bool = True, reaproveitado: bool = False) -> None:
@@ -55,6 +98,41 @@ class Barra:
         else:
             self.erros += 1
         self.desenhar()
+
+    def contar(self, n: int = 1) -> None:
+        """Modo etapas: soma itens à etapa atual e redesenha."""
+        self.itens_etapa += n
+        self.itens_total += n
+        self.desenhar()
+
+    def avancar(self, nome: str = "") -> None:
+        """Modo etapas: conclui a etapa atual e passa para a próxima.
+
+        O nome da etapa NÃO é limpo ao terminar a última: assim a linha final
+        continua dizendo em que se estava trabalhando, em vez de virar um
+        genérico "ok=0".
+        """
+        self.feitos += 1
+        self.etapa_indice = min(self.feitos, len(self.etapas))
+        self.itens_etapa = 0
+        self._t0_etapa = time.time()
+        if nome:
+            self.etapa_atual = nome
+        elif self.feitos < len(self.etapas):
+            self.etapa_atual = self.etapas[self.feitos]
+        self.desenhar(forcar=True)
+
+    def iniciar_etapa(self, nome: str) -> None:
+        """Modo etapas: define o nome da etapa que está começando."""
+        self.etapa_atual = nome
+        self.itens_etapa = 0
+        self.itens_total += 0
+        self._t0_etapa = time.time()
+        self.desenhar(forcar=True)
+
+    def soma_tag(self, tag: str, n: int = 1) -> None:
+        """Contadores extras livres (ex.: 'pulados', 'apartamentos')."""
+        self.extras[tag] = self.extras.get(tag, 0) + n
 
     @property
     def decorrido(self) -> float:
@@ -79,21 +157,49 @@ class Barra:
             miolo = ""
         miolo += "." * (self.largura - len(miolo))
 
-        texto = f"\r{self.feitos:>4}/{self.total} [{miolo}] {frac * 100:>3.0f}%"
+        cabeca = f"{self.rotulo} " if self.rotulo else ""
+        texto = (f"\r{cabeca}{self.feitos:>3}/{self.total} [{miolo}]"
+                 f" {frac * 100:>3.0f}%")
 
-        contadores = [f"ok={self.ok}"]
-        if self.reaproveitados:
-            contadores.append(f"dup={self.reaproveitados}")
-        if self.erros:
-            contadores.append(f"erro={self.erros}")
+        contadores = []
+
+        # modo etapas: mostra o que está acontecendo agora
+        if self.modo_etapas and self.etapa_atual:
+            nome = self.etapa_atual
+            if len(nome) > 26:
+                nome = nome[:25] + "~"
+            contadores.append(f"-> {nome}")
+            if self.itens_etapa:
+                contadores.append(f"{self.itens_etapa} itens")
+            elif self.itens_total:
+                contadores.append(f"{self.itens_total} itens no total")
+
+            ritmo = self._ritmo()
+            if self.feitos and ritmo >= 0.05:
+                contadores.append(f"{ritmo:.1f}s/etapa")
+                falta = self._restante()
+                # projetar "0s" não ajuda: só vale a pena quando há o que esperar
+                if falta >= 5:
+                    contadores.append(f"faltam {_duracao(falta)}")
+        else:
+            contadores.append(f"ok={self.ok}")
+            if self.reaproveitados:
+                contadores.append(f"dup={self.reaproveitados}")
+            if self.erros:
+                contadores.append(f"erro={self.erros}")
+
+        for tag, n in self.extras.items():
+            if n:
+                contadores.append(f"{tag}={n}")
 
         # ritmo/previsão só fazem sentido quando cada item leva um tempo
         # perceptível; em lotes instantâneos o número arredonda para 0,0s
         # e só polui a linha.
-        ritmo = self._ritmo()
-        if self.feitos and ritmo >= 0.05:
-            contadores.append(f"{ritmo:.1f}s/ad")
-            contadores.append(f"resta {_duracao(self._restante())}")
+        if not self.modo_etapas:
+            ritmo = self._ritmo()
+            if self.feitos and ritmo >= 0.05:
+                contadores.append(f"{ritmo:.1f}s/item")
+                contadores.append(f"faltam {_duracao(self._restante())}")
 
         return texto + "  " + " ".join(contadores)
 
@@ -130,3 +236,25 @@ class Barra:
         self.stream.write("\n")
         self.stream.flush()
         self._largura_linha = 0
+
+
+def resumo(titulo: str, pares: list[tuple[str, object]],
+           largura_rotulo: int = 24) -> None:
+    """Imprime um bloco de resumo alinhado no fim de uma coleta.
+
+    Ex.:
+        ==============================
+        OLX · coleta finalizada
+        ==============================
+        salvos                    847
+        já existiam                12
+    """
+    linha = "=" * 58
+    print(f"\n{linha}\n{titulo}\n{linha}")
+    for rotulo, valor in pares:
+        if isinstance(valor, float):
+            print(f"  {rotulo:<{largura_rotulo}} {valor:,.2f}")
+        elif isinstance(valor, int):
+            print(f"  {rotulo:<{largura_rotulo}} {valor:,}")
+        else:
+            print(f"  {rotulo:<{largura_rotulo}} {valor}")

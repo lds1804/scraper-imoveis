@@ -3,7 +3,7 @@
 > Lista de tarefas do projeto, organizada por tema.
 > Legenda: ✅ feito · 🔶 parcial · ⬜ pendente
 >
-> Última revisão: 2026-10-02
+> Última revisão: 2026-10-03
 
 ---
 
@@ -13,7 +13,9 @@
       Playwright com contexto persistente para passar pelo Cloudflare.
       Coleta 4 bairros: Vila Mangalot, Parque São Domingos, City América e
       Parque Maria Domitila — **178 anúncios**.
-- [ ] **Crawler da OLX** nos mesmos bairros.
+- [x] **Crawler da OLX** nos mesmos bairros.
+      Playwright (a OLX devolve 403 para `requests`). A OLX **não aceita
+      filtro de tipo** por nenhum caminho, então o filtro é feito depois.
 - [x] **Enriquecimento pela página de detalhe**
       Descrição completa, quartos/banheiros/vagas, financiamento e a
       **galeria completa** (a listagem publica só 1 foto de capa; o detalhe
@@ -21,10 +23,19 @@
 - [x] **Validação de localidade**
       Todo anúncio salvo é de São Paulo **e** de um dos bairros-alvo —
       evita tanto o fallback nacional do site quanto bairro errado.
-- [ ] **Ampliar a lista de bairros**
-      Hoje 21 bairros configurados, mas só 4 retornaram anúncios.
+- [x] **Ampliar a lista de bairros**
+      **21 bairros configurados** e 4 portais coletando (Imovelweb, OLX,
+      ZAP/VivaReal — mesmo inventário — e QuintoAndar).
 - [ ] **Rodar o crawler diariamente**, de forma automática
       (ver pipeline na AWS, item 5).
+- [x] **Retirar os apartamentos da busca**
+      `tipo_do_anuncio()` classifica por título e URL. **472 apartamentos
+      removidos** (1.104 → 632). Armadilha encontrada: `vila` é **nome de
+      bairro** (Vila Mangalot, Vila Leopoldina), não tipo de imóvel —
+      classificava todo apartamento desses bairros como casa.
+- [x] **Filtro de preço máximo**
+      `PRECO_MAX = 1.000.000`, verificado nos 4 níveis: `config`,
+      `atende_preco()`, o `priceMax` da API e o SQLite final.
 
 ## 2. Enriquecimento com IA (DeepSeek)
 
@@ -56,6 +67,51 @@
       **determinístico** — passar **features já calculadas**, não o texto
       bruto.
 - [ ] **Estudar outras aplicações** do JEV neste caso.
+
+## 3-B. ITBI e comparação de preços
+
+- [x] **Baixar os dados de ITBI da Prefeitura**
+      `src/itbi.py` descobre os links na página da Fazenda (os nomes mudam
+      todo mês) e baixa as planilhas. **21 anos (2006–2026), 532 MB.**
+- [x] **Ingerir as planilhas no SQLite**
+      `src/ingerir_itbi.py` mapeia colunas **por nome** (os arquivos antigos
+      têm layout diferente), filtra uso residencial e retoma de onde parou.
+      **358 mil+ transações.**
+- [x] **Corrigir valores antigos pela inflação**
+      `src/indices.py` usa o número-índice do IPCA (IBGE, agregado 1737).
+      A API do Banco Central **não resolve DNS** nesta rede.
+- [x] **Normalizar endereços para cruzar anúncio × ITBI**
+      `src/endereco.py` resolve três diferenças reais: tipo de via abreviado
+      (`AV` vs `Avenida`), CEP com zero à esquerda (7 vs 8 dígitos) e número
+      no fim do logradouro do anúncio.
+- [x] **Comparar o preço pedido com o preço praticado**
+      `src/comparar_itbi.py` — compara em **R$/m²** numa cascata de
+      `rua+cep` → `rua` → `cep`, exigindo área parecida (±25%).
+      **2.128 anúncios comparados (83%).**
+- [x] **Listar as transações que embasaram cada comparação**
+      Tabela `comparacoes_detalhe` + `--detalhar <url>`: mostra data, área,
+      valor corrigido e endereço de cada venda usada — para auditar, em vez
+      de aceitar um número anônimo.
+- [x] **Filtrar transações que não são preço de mercado**
+      A primeira versão comparava com lixo e dava número errado. Descartado:
+      doação, herança, leilão, adjudicação, permuta (só `1.Compra e venda`),
+      transmissão parcial (proporção < 100%) e R$/m² fora de 800–25.000.
+      **Descartou 82 mil de 330 mil linhas e preservou 75% do dado.**
+- [x] **Mediana por número de imóvel, não por transação**
+      Um empreendimento que vende muitas unidades domina a estatística da
+      rua: na Rua Marco Aurélio, 11 das 18 vendas eram no nº 55. A mediana
+      passa a ser tirada **dentro** de cada número e depois **entre**
+      números — corrigiu **−17%** nessa rua.
+- [x] **Priorizar transações financiadas**
+      Compra financiada passa por **avaliação do banco** — o valor declarado
+      não pode ser reduzido para pagar menos imposto. Medido na base:
+      financiadas R$ 5.927/m² contra R$ 4.407/m² das diretas (−26%).
+      A cascata tenta **só financiadas primeiro**. Gradiente confirmado:
+      0% financiadas → razão 1,57 · 100% financiadas → razão **0,96**.
+- [ ] **Levar a comparação para a interface web**
+      Hoje só existe pela linha de comando. Falta a coluna "vs. ITBI" na
+      listagem, um filtro "abaixo da mediana" e o bloco de transações na
+      página de detalhe.
 
 ## 4. Interface
 

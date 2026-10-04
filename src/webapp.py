@@ -187,6 +187,8 @@ def _chips_ativos(filtros: dict) -> list[dict]:
         chips.append({"rotulo": "bem cuidado (foto)", "url": base("so_cuidado")})
     if filtros.get("com_problemas"):
         chips.append({"rotulo": "com problemas (foto)", "url": base("com_problemas")})
+    if filtros.get("so_abaixo"):
+        chips.append({"rotulo": "abaixo do preço praticado", "url": base("so_abaixo")})
 
     return chips
 
@@ -195,6 +197,116 @@ def _conn() -> sqlite3.Connection:
     conn = sqlite3.connect(config.DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _tem_comparacoes(conn: sqlite3.Connection) -> bool:
+    """A tabela de comparações existe e tem dados?
+
+    Checa de verdade em vez de confiar no try/except: assim uma falha de SQL
+    (coluna renomeada) não vira silenciosamente "sem comparações", que foi o
+    tipo de bug que já escondeu dado neste projeto.
+    """
+    try:
+        existe = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='comparacoes'"
+        ).fetchone()
+        if not existe:
+            return False
+        return conn.execute(
+            "SELECT 1 FROM comparacoes WHERE razao IS NOT NULL LIMIT 1"
+        ).fetchone() is not None
+    except sqlite3.Error:
+        return False
+
+
+def _comparacoes(conn: sqlite3.Connection, urls: list[str]) -> dict[str, dict]:
+    """Busca a comparação ITBI de vários anúncios de uma vez."""
+    if not urls:
+        return {}
+    marcadores = ",".join("?" * len(urls))
+    try:
+        linhas = conn.execute(
+            f"SELECT * FROM comparacoes WHERE anuncio_url IN ({marcadores})",
+            urls,
+        ).fetchall()
+    except sqlite3.Error:
+        return {}
+    return {r["anuncio_url"]: dict(r) for r in linhas}
+
+
+def _tem_areas(conn: sqlite3.Connection) -> bool:
+    """A tabela de áreas oficiais (GeoSampa) existe e tem dados?"""
+    try:
+        existe = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='areas_oficiais'"
+        ).fetchone()
+        if not existe:
+            return False
+        return conn.execute(
+            "SELECT 1 FROM areas_oficiais WHERE dif_pct IS NOT NULL LIMIT 1"
+        ).fetchone() is not None
+    except sqlite3.Error:
+        return False
+
+
+def _areas_oficiais(conn: sqlite3.Connection, urls: list[str]) -> dict[str, dict]:
+    """Área oficial do cadastro fiscal (GeoSampa) de vários anúncios."""
+    if not urls:
+        return {}
+    marcadores = ",".join("?" * len(urls))
+    try:
+        linhas = conn.execute(
+            f"SELECT * FROM areas_oficiais WHERE anuncio_url IN ({marcadores})",
+            urls,
+        ).fetchall()
+    except sqlite3.Error:
+        return {}
+    return {r["anuncio_url"]: dict(r) for r in linhas}
+
+
+def _tem_venais(conn: sqlite3.Connection) -> bool:
+    """A tabela de valores venais existe e tem dados?"""
+    try:
+        if not conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='valores_venais'"
+        ).fetchone():
+            return False
+        return conn.execute(
+            "SELECT 1 FROM valores_venais LIMIT 1").fetchone() is not None
+    except sqlite3.Error:
+        return False
+
+
+def _venais(conn: sqlite3.Connection, urls: list[str]) -> dict[str, dict]:
+    """Valor venal estimado (referência tributária) de vários anúncios."""
+    if not urls:
+        return {}
+    marcadores = ",".join("?" * len(urls))
+    try:
+        linhas = conn.execute(
+            f"SELECT * FROM valores_venais WHERE anuncio_url IN ({marcadores})",
+            urls,
+        ).fetchall()
+    except sqlite3.Error:
+        return {}
+    return {r["anuncio_url"]: dict(r) for r in linhas}
+
+
+def _grau_area(dif: float | None) -> str:
+    """Mesma faixa usada em `geosampa._grau_diferenca()`, para a interface.
+
+    A zona morta de +-15% existe porque o anúncio arredonda e pode contar a
+    área de forma diferente da prefeitura (útil x construída, varanda,
+    edícula). Dentro dela não há o que concluir.
+    """
+    if dif is None:
+        return "sem dado"
+    a = abs(dif)
+    if a <= 15:
+        return "compativel"
+    if a <= 30:
+        return "atencao"
+    return "divergente"
 
 
 def _rel_foto(caminho: str) -> str:
@@ -261,57 +373,92 @@ def index():
     so_arvores = request.args.get("so_arvores") == "1"
     so_cuidado = request.args.get("so_cuidado") == "1"
     com_problemas = request.args.get("com_problemas") == "1"
-    ordem = request.args.get("ordem", "score")
+    # comparação com o preço praticado (ITBI)
+    so_abaixo = request.args.get("so_abaixo") == "1"
+    ordem = request.args.get("ordem", "abaixo")
 
-    sql = "SELECT * FROM anuncios WHERE 1=1"
+    # "abaixo da mediana do ITBI": razão = preço pedido / mediana das
+    # transações comparáveis, então < 1 = abaixo do preço praticado.
+    conn = _conn()
+    tem_comp = _tem_comparacoes(conn)
+    tem_areas = _tem_areas(conn)
+    tem_venais = _tem_venais(conn)
+
+    # Todas as colunas do WHERE ganham o prefixo `a.` e o LEFT JOIN entra
+    # sempre que a tabela de comparações existe. O LEFT JOIN é necessário
+    # (não INNER) para que quem NÃO tem comparação continue aparecendo na
+    # listagem — só vai para o fim da ordem.
+    if tem_comp:
+        sql = ("SELECT a.* FROM anuncios a "
+               "LEFT JOIN comparacoes c ON c.anuncio_url = a.url "
+               "WHERE 1=1")
+    else:
+        sql = "SELECT a.* FROM anuncios a WHERE 1=1"
     params: list = []
 
     if bairro:
         # a coluna guarda o NOME real ("Vila Mangalot"); aceita também o slug
         # na URL ("vila-mangalot") convertendo antes de comparar
-        sql += " AND LOWER(bairro) = LOWER(?)"
+        sql += " AND LOWER(a.bairro) = LOWER(?)"
         params.append(_bairro(bairro))
     if preco_max:
-        sql += " AND preco IS NOT NULL AND preco <= ?"
+        sql += " AND a.preco IS NOT NULL AND a.preco <= ?"
         params.append(float(preco_max))
     if terreno_min:
-        sql += " AND area_terreno IS NOT NULL AND area_terreno >= ?"
+        sql += " AND a.area_terreno IS NOT NULL AND a.area_terreno >= ?"
         params.append(float(terreno_min))
     if quartos_min:
-        sql += " AND quartos IS NOT NULL AND quartos >= ?"
+        sql += " AND a.quartos IS NOT NULL AND a.quartos >= ?"
         params.append(int(quartos_min))
     if so_quintal:
-        sql += " AND match_quintal = 1"
+        sql += " AND a.match_quintal = 1"
     if so_financiamento:
-        sql += " AND aceita_financiamento = 1"
+        sql += " AND a.aceita_financiamento = 1"
     if sem_financiamento:
-        sql += " AND (aceita_financiamento IS NULL OR aceita_financiamento = 0)"
+        sql += " AND (a.aceita_financiamento IS NULL OR a.aceita_financiamento = 0)"
     if piso_quintal:
         # "terra" é um caso especial: quase nenhum quintal é terra PURA
         # (o normal é terra + um canto cimentado, que o modelo classifica
         # como "misto"). Perguntar pelo piso predominante devolveria zero.
         # Aqui a pergunta é "tem terra?", que é o que o usuário quer saber.
         if piso_quintal == "terra":
-            sql += " AND foto_quintal_terra = 1"
+            sql += " AND a.foto_quintal_terra = 1"
         else:
-            sql += " AND foto_piso_quintal = ?"
+            sql += " AND a.foto_piso_quintal = ?"
             params.append(piso_quintal)
     if so_arvores:
-        sql += " AND foto_arvores = 1"
+        sql += " AND a.foto_arvores = 1"
     if so_cuidado:
-        sql += " AND foto_cuidado >= 4"
+        sql += " AND a.foto_cuidado >= 4"
     if com_problemas:
-        sql += " AND COALESCE(foto_problemas, '') <> ''"
+        sql += " AND COALESCE(a.foto_problemas, '') <> ''"
 
-    ordem_sql = {
-        "score": "score_quintal DESC, preco ASC",
-        "preco_asc": "preco ASC",
-        "preco_desc": "preco DESC",
-        "terreno": "area_terreno DESC",
-        "recentes": "rowid DESC",
-    }.get(ordem, "score_quintal DESC, preco ASC")
+    # "abaixo da mediana do ITBI" — o JOIN precisa existir para o filtro valer
+    if so_abaixo and tem_comp:
+        sql += " AND c.razao IS NOT NULL AND c.razao < 1"
+
+    # ORDEM PADRÃO: os mais abaixo do mercado primeiro (pedido do usuário).
+    # `c.razao IS NULL` vai para o fim: sem comparação não é "bom negócio",
+    # é ausência de informação — não faz sentido liderar a lista.
+    if tem_comp:
+        ordem_sql = {
+            "abaixo": "c.razao IS NULL, c.razao ASC, a.score_quintal DESC, a.preco ASC",
+            "score": "a.score_quintal DESC, a.preco ASC",
+            "preco_asc": "a.preco ASC",
+            "preco_desc": "a.preco DESC",
+            "terreno": "a.area_terreno DESC",
+            "recentes": "a.rowid DESC",
+        }.get(ordem, "c.razao IS NULL, c.razao ASC, a.score_quintal DESC, a.preco ASC")
+    else:
+        ordem_sql = {
+            "preco_asc": "a.preco ASC",
+            "preco_desc": "a.preco DESC",
+            "terreno": "a.area_terreno DESC",
+            "recentes": "a.rowid DESC",
+        }.get(ordem, "a.score_quintal DESC, a.preco ASC")
 
     sql += f" ORDER BY {ordem_sql}"
+
     anuncios = conn.execute(sql, params).fetchall()
 
     bairros = [
@@ -320,11 +467,20 @@ def index():
             "SELECT bairro, COUNT(*) c FROM anuncios GROUP BY bairro ORDER BY bairro"
         ).fetchall()
     ]
+    comps = _comparacoes(conn, [a["url"] for a in anuncios]) if tem_comp else {}
+    urls = [a["url"] for a in anuncios]
+    areas = _areas_oficiais(conn, urls) if tem_areas else {}
+    venais = _venais(conn, urls) if tem_venais else {}
     conn.close()
 
     cards = []
     for a in anuncios:
         d = dict(a)
+        d["comp"] = comps.get(a["url"])
+        d["area_of"] = areas.get(a["url"])
+        d["area_grau"] = _grau_area(
+            (areas.get(a["url"]) or {}).get("dif_pct"))
+        d["venal"] = venais.get(a["url"])
         fotos = _fotos_locais(a["url"])
         d["fotos_card"] = fotos[:8]
         d["n_fotos"] = len(fotos)
@@ -345,6 +501,7 @@ def index():
             "so_arvores": so_arvores,
             "so_cuidado": so_cuidado,
             "com_problemas": com_problemas,
+            "so_abaixo": so_abaixo,
             "ordem": ordem,
         }
     )
@@ -366,10 +523,12 @@ def index():
             "so_arvores": so_arvores,
             "so_cuidado": so_cuidado,
             "com_problemas": com_problemas,
+            "so_abaixo": so_abaixo,
             "ordem": ordem,
         },
         chips=chips,
         filtros_ativos=ativos,
+        tem_comp=tem_comp,
         total=len(cards),
     )
 
@@ -378,11 +537,34 @@ def index():
 def detalhe(anuncio_url: str):
     conn = _conn()
     a = conn.execute("SELECT * FROM anuncios WHERE url = ?", (anuncio_url,)).fetchone()
+    comp = None
+    area_of = None
+    transacoes: list = []
+    if a is not None and _tem_comparacoes(conn):
+        comp = _comparacoes(conn, [anuncio_url]).get(anuncio_url)
+        if comp:
+            transacoes = [
+                dict(r) for r in conn.execute(
+                    """SELECT * FROM comparacoes_detalhe WHERE anuncio_url = ?
+                       ORDER BY preco_m2""",
+                    (anuncio_url,),
+                ).fetchall()
+            ]
+    if a is not None and _tem_areas(conn):
+        area_of = _areas_oficiais(conn, [anuncio_url]).get(anuncio_url)
+    venal = None
+    if a is not None and _tem_venais(conn):
+        venal = _venais(conn, [anuncio_url]).get(anuncio_url)
     conn.close()
     if a is None:
         abort(404)
 
     d = dict(a)
+    d["comp"] = comp
+    d["transacoes"] = transacoes
+    d["area_of"] = area_of
+    d["area_grau"] = _grau_area((area_of or {}).get("dif_pct"))
+    d["venal"] = venal
     d["fotos"] = _fotos_locais(anuncio_url)
     # URLs já prontas (o JS do carrossel usa direto, sem montar caminho)
     d["fotos_web"] = [url_for("foto", caminho=f) for f in d["fotos"]]

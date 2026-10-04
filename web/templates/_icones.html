@@ -85,6 +85,13 @@
 {%- elif nome == 'alerta' -%}
   <path d="M12 3.5 21 19H3z"/>
   <path d="M12 9.5v4.5M12 17v.01"/>
+{%- elif nome == 'seta-baixo' -%}
+  <path d="M12 4.5v15"/><path d="m5.5 13 6.5 6.5L18.5 13"/>
+{%- elif nome == 'seta-cima' -%}
+  <path d="M12 19.5v-15"/><path d="m5.5 11 6.5-6.5L18.5 11"/>
+{%- elif nome == 'grafico' -%}
+  <path d="M3.5 3.5v17h17"/>
+  <path d="m6.5 15.5 3.5-4 3 2.5L20 7.5"/>
 {%- endif -%}
 </svg>
 {%- endmacro %}

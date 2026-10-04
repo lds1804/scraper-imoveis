@@ -7,7 +7,7 @@
 > atual, veja o [README.md](README.md), em inglês.
 
 Coleta anúncios de **casas à venda** na **Vila Mangalot** e **Parque São Domingo**
-(São Paulo), filtra por preço (até R$ 900 mil) e área de terreno (> 200 m²),
+(São Paulo), filtra por preço (até R$ 1 milhão) e área de terreno (> 200 m²),
 e tenta identificar imóveis com quintal/terra. Salva tudo localmente (SQLite + fotos).
 
 ## Instalação
@@ -37,7 +37,7 @@ python main.py --bairros city-america lapa    # só estes (slug ou nome)
 python main.py --listar                       # ver os bairros disponíveis
 ```
 
-> **Preço:** o teto é `PRECO_MAX` em `config.py` (hoje R$ 10 mi). Bairros de
+> **Preço:** o teto é `PRECO_MAX` em `config.py` (hoje R$ 1 mi). Bairros de
 > alto padrão — como **City América**, cujo anúncio mais barato é ~R$ 1,75 mi —
 > têm **todos** os imóveis descartados com um teto baixo, e isso acontece em
 > silêncio. Ao adicionar um bairro novo, confira a faixa de preço dele.

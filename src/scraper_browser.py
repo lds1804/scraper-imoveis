@@ -90,6 +90,18 @@ class Anuncio:
     score_quintal: int = 0
     # True/False quando o anúncio deixa claro; None quando não informa
     aceita_financiamento: Optional[bool] = None
+    # CEP do imóvel. Só a OLX informa (no JSON-LD); útil para conferir a
+    # localidade quando o texto do bairro é ambíguo.
+    cep: str = ""
+    # Quantos anúncios existem para este MESMO imóvel, segundo o próprio site
+    # (campo `listingsCount` do ZAP/VivaReal). 1 = sem repetição conhecida.
+    # É sinal direto para o agrupamento de duplicatas.
+    listing_count: int = 1
+    # Suítes (o ZAP/VivaReal não separa; o QuintoAndar informa)
+    suites: Optional[int] = None
+    # Comodidades cruas como o portal informa (ex.: "POOL", "VISTA_LIVRE").
+    # Ficam fora do banco por enquanto; a análise visual cobre o que importa.
+    amenities: list[str] = field(default_factory=list)
 
     def to_row(self) -> tuple:
         return (
@@ -98,6 +110,7 @@ class Anuncio:
             self.bairro,
             self.endereco,
             self.rua,
+            self.cep,
             self.preco,
             self.area_construida,
             self.area_terreno,
@@ -279,6 +292,77 @@ def e_de_sao_paulo(anuncio: "Anuncio") -> bool:
         return True
     # aceita variações "sao paulo - sp", "sao paulo/sp"
     return any(cidade.startswith(a) for a in aceitas)
+
+
+# ---------------------------------------------------------------------------
+# Tipo do imóvel: descarta apartamentos
+# ---------------------------------------------------------------------------
+# O Imovelweb filtra o tipo pela própria URL (`/casas-venda-...`), mas a OLX
+# NÃO tem filtro de tipo que funcione. Testado no site:
+#   - `/imoveis/venda/estado-sp/sao-paulo-e-regiao/casas?q=...` -> ignorado
+#     (544 resultados, os mesmos de antes, com 4 apartamentos na 1ª página)
+#   - `?category=1002` / `?category=1020`            -> ignorado
+#   - as abas "Casas"/"Apartamentos" da página        -> ignorado (só JS)
+# Então a classificação é feita pelo TÍTULO do anúncio, que é confiável:
+# "Apartamento à Venda - ...", "Casa para venda em ...", "Sobrado à venda ...".
+#
+# A URL NÃO serve como fonte primária: 749 dos 926 anúncios da OLX têm slug
+# começando por palavra de marketing ("otimo-", "lindo-", "excelente-"), então
+# o tipo só aparece no meio dela. O título acerta.
+_TIPOS_APARTAMENTO = (
+    "apartamento",
+    "kitnet",
+    "kit net",
+    "studio",
+    "stúdio",
+    "loft",
+    "flat",
+    "cobertura",
+    "garden",
+    "quitnete",
+)
+_TIPOS_CASA = (
+    "casa",
+    "sobrado",
+    "sobradinho",
+    "térrea",
+    "terrea",
+    "casa de vila",
+    "casa de condomínio",
+    "casa de condominio",
+    "chácara",
+    "chacara",
+)
+# NOTA: "vila" sozinho NÃO entra na lista acima. Em São Paulo, "Vila X" é
+# nome de bairro (Vila Mangalot, Vila Jaguara, Vila Leopoldina), então a
+# palavra apareceria em todo anúncio desses bairros e classificaria
+# apartamentos como casas. Só "casa de vila" (a expressão completa) conta.
+
+
+def tipo_do_anuncio(anuncio: "Anuncio") -> str:
+    """Classifica o imóvel em 'casa', 'apartamento' ou 'incerto'.
+
+    Olha o título e, se ele não disser, o slug da URL. Ordem importa: checa
+    APARTAMENTO antes de CASA, porque "Apartamento em condomínio de casas"
+    contém as duas palavras e o apartamento é o tipo real.
+
+    Devolve 'incerto' quando nada é reconhecido — quem chama decide o que
+    fazer (aqui, mantém o anúncio, para não perder uma casa por engano).
+    """
+    texto = _normalizar_busca(f"{anuncio.titulo or ''} {anuncio.url or ''}")
+
+    for pista in _TIPOS_APARTAMENTO:
+        if _normalizar_busca(pista) in texto:
+            return "apartamento"
+    for pista in _TIPOS_CASA:
+        if _normalizar_busca(pista) in texto:
+            return "casa"
+    return "incerto"
+
+
+def e_casa(anuncio: "Anuncio") -> bool:
+    """True se o anúncio NÃO é apartamento (casa ou tipo desconhecido)."""
+    return tipo_do_anuncio(anuncio) != "apartamento"
 
 
 # Alguns alts começam com um hash + separador: "1aa4c134...a8 · Título"

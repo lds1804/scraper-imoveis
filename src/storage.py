@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import sqlite3
@@ -41,6 +42,7 @@ class DB:
                 bairro TEXT,
                 endereco TEXT,
                 rua TEXT,
+                cep TEXT,
                 preco REAL,
                 area_construida REAL,
                 area_terreno REAL,
@@ -114,6 +116,11 @@ class DB:
             self.conn.execute("ALTER TABLE anuncios ADD COLUMN rua TEXT")
             self.conn.commit()
 
+        # cep: só a OLX informa (vem do JSON-LD da página do anúncio)
+        if "cep" not in existentes:
+            self.conn.execute("ALTER TABLE anuncios ADD COLUMN cep TEXT")
+            self.conn.commit()
+
         # Colunas da análise visual (adicionadas em bancos já existentes).
         # Todas podem ficar NULL: NULL = anúncio ainda não analisado.
         colunas_visao = {
@@ -157,6 +164,10 @@ class DB:
             "dup_melhor": "INTEGER",      # 1 = é o anúncio principal do grupo
             "dup_n_fotos": "INTEGER",     # fotos do melhor (para comparar)
             "dup_menor_preco": "REAL",    # menor preço do grupo
+            # JSON com a ficha de CADA anúncio do grupo (preço, link, portal,
+            # nº de fotos). É o que permite agrupar sem perder o preço
+            # individual de cada imobiliária.
+            "dup_detalhes": "TEXT",
         }
         faltando_dup = [c for c in colunas_dup if c not in existentes]
         for coluna in faltando_dup:
@@ -173,12 +184,21 @@ class DB:
             {"membros": [url, ...], "principal": url, "menor_preco": float}
 
         Marca todos os membros e escolhe o "principal" (o que serve de
-        referência: mais fotos e, em empate, menor preço). Nada é removido.
+        referência: mais fotos e, em empate, menor preço).
+
+        Além das marcações, grava em `dup_detalhes` (JSON) a lista COMPLETA dos
+        anúncios do grupo, cada um com **preço e link**. Isso é o que o usuário
+        pediu: agrupar sob um link, mas sem perder quanto cada imobiliária está
+        pedindo — a diferença de preço entre cópias do mesmo imóvel é
+        informação útil, não ruído.
+
+        Nada é removido.
         """
         # limpa marcações anteriores
         self.conn.execute(
             "UPDATE anuncios SET dup_grupo=NULL, dup_qtd=NULL, "
-            "dup_melhor=NULL, dup_n_fotos=NULL, dup_menor_preco=NULL"
+            "dup_melhor=NULL, dup_n_fotos=NULL, dup_menor_preco=NULL, "
+            "dup_detalhes=NULL"
         )
 
         n = 0
@@ -190,16 +210,103 @@ class DB:
                 "SELECT COUNT(*) FROM fotos WHERE anuncio_url = ?", (principal,)
             ).fetchone()[0]
 
+            # Ficha de cada anúncio do grupo: preço, link, portal e nº de fotos.
+            # Fica em JSON para o grupo inteiro caber numa linha só.
+            detalhes = self.detalhes_do_grupo(membros)
+            json_detalhes = json.dumps(detalhes, ensure_ascii=False)
+
             for url in membros:
                 self.conn.execute(
                     "UPDATE anuncios SET dup_grupo=?, dup_qtd=?, dup_melhor=?, "
-                    "dup_n_fotos=?, dup_menor_preco=? WHERE url=?",
+                    "dup_n_fotos=?, dup_menor_preco=?, dup_detalhes=? WHERE url=?",
                     (idx, len(membros), int(url == principal),
-                     n_fotos_principal, menor, url),
+                     n_fotos_principal, menor, json_detalhes, url),
                 )
                 n += 1
         self.conn.commit()
         return n
+
+    def detalhes_do_grupo(self, urls: list[str]) -> list[dict]:
+        """Ficha de cada anúncio do grupo (preço, link, portal, nº de fotos).
+
+        Ordenado do menor para o maior preço: assim a primeira linha é sempre
+        a oferta mais barata do mesmo imóvel.
+        """
+        if not urls:
+            return []
+        marcadores = ",".join("?" * len(urls))
+        linhas = self.conn.execute(
+            f"""
+            SELECT a.url, a.titulo, a.preco, a.portal, a.bairro, a.rua,
+                   a.area_construida, a.quartos,
+                   (SELECT COUNT(*) FROM fotos f WHERE f.anuncio_url = a.url) n_fotos
+            FROM anuncios a
+            WHERE a.url IN ({marcadores})
+            ORDER BY (a.preco IS NULL), a.preco ASC
+            """,
+            urls,
+        ).fetchall()
+        return [
+            {
+                "url": r["url"],
+                "titulo": (r["titulo"] or "")[:120],
+                "preco": r["preco"],
+                "portal": r["portal"],
+                "bairro": r["bairro"],
+                "rua": r["rua"],
+                "area": r["area_construida"],
+                "quartos": r["quartos"],
+                "fotos": r["n_fotos"],
+            }
+            for r in linhas
+        ]
+
+    def grupos_publicados(self) -> list[dict]:
+        """Grupos de duplicatas com preços e links de cada membro.
+
+        É a visão que a interface usa: um grupo = um imóvel, com a lista de
+        quem anuncia e por quanto.
+        """
+        grupos: dict[int, dict] = {}
+        for r in self.conn.execute(
+            """
+            SELECT url, dup_grupo, dup_melhor, dup_qtd, dup_menor_preco,
+                   dup_detalhes, titulo, bairro, preco, portal
+            FROM anuncios
+            WHERE dup_grupo IS NOT NULL
+            ORDER BY dup_grupo, dup_melhor DESC, preco
+            """
+        ):
+            g = grupos.setdefault(
+                r["dup_grupo"],
+                {
+                    "grupo": r["dup_grupo"],
+                    "qtd": r["dup_qtd"],
+                    "menor_preco": r["dup_menor_preco"],
+                    "principal": None,
+                    "membros": [],
+                    "detalhes": [],
+                },
+            )
+            if r["dup_melhor"]:
+                g["principal"] = r["url"]
+            g["membros"].append(r["url"])
+            if not g["detalhes"] and r["dup_detalhes"]:
+                try:
+                    g["detalhes"] = json.loads(r["dup_detalhes"])
+                except (json.JSONDecodeError, TypeError):
+                    g["detalhes"] = []
+
+        lista = sorted(grupos.values(), key=lambda x: x["grupo"])
+        for g in lista:
+            # faixa de preço do grupo: o quanto a mesma casa varia entre sites
+            precos = [d["preco"] for d in g["detalhes"] if d.get("preco")]
+            g["preco_min"] = min(precos) if precos else None
+            g["preco_max"] = max(precos) if precos else None
+            g["economia"] = (
+                g["preco_max"] - g["preco_min"] if len(precos) > 1 else None
+            )
+        return lista
 
     def duplicatas(self) -> list[dict]:
         """Lista os grupos de duplicatas marcados, com os dados de cada membro."""
@@ -225,11 +332,11 @@ class DB:
         self.conn.execute(
             """
             INSERT OR REPLACE INTO anuncios (
-                url, titulo, bairro, endereco, rua, preco,
+                url, titulo, bairro, endereco, rua, cep, preco,
                 area_construida, area_terreno, quartos, banheiros, vagas,
                 descricao, portal, fotos_urls, match_quintal, score_quintal,
                 aceita_financiamento
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (*a.to_row(), None if a.aceita_financiamento is None else int(a.aceita_financiamento)),
         )
@@ -240,6 +347,25 @@ class DB:
             "INSERT INTO fotos (anuncio_url, foto_url, arquivo_local) VALUES (?,?,?)",
             (anuncio_url, foto_url, arquivo_local),
         )
+        self.conn.commit()
+
+    def salvar_foto_sem_commit(self, anuncio_url: str, foto_url: str,
+                               arquivo_local: str) -> None:
+        """Insere uma foto SEM commit (para inserir muitas de uma vez).
+
+        `salvar_foto` faz commit a cada chamada. Com uma galeria de 50 fotos
+        são 50 commits por anúncio — e como o mesmo imóvel aparece em vários
+        portais, isso chega a milhares de commits. Cada commit força um fsync
+        e esse custo passa a dominar o tempo de download. Aqui o commit fica
+        por conta de `commit()`.
+        """
+        self.conn.execute(
+            "INSERT INTO fotos (anuncio_url, foto_url, arquivo_local) VALUES (?,?,?)",
+            (anuncio_url, foto_url, arquivo_local),
+        )
+
+    def commit(self) -> None:
+        """Grava o que estiver pendente (usado após os inserts em lote)."""
         self.conn.commit()
 
     def fotos_registradas(self, anuncio_url: str) -> set[str]:
@@ -287,6 +413,7 @@ class DB:
                 titulo          = COALESCE(NULLIF(?, ''), titulo),
                 endereco        = COALESCE(NULLIF(?, ''), endereco),
                 rua             = COALESCE(NULLIF(?, ''), rua),
+                cep             = COALESCE(NULLIF(?, ''), cep),
                 area_construida = COALESCE(?, area_construida),
                 area_terreno    = COALESCE(?, area_terreno),
                 quartos         = COALESCE(?, quartos),
@@ -310,6 +437,7 @@ class DB:
                 a.titulo,
                 a.endereco,
                 a.rua,
+                a.cep,
                 a.area_construida,
                 a.area_terreno,
                 a.quartos,
@@ -432,6 +560,15 @@ class DB:
         cur = self.conn.execute("SELECT COUNT(*) FROM anuncios")
         return cur.fetchone()[0]
 
+    def por_portal(self) -> dict[str, int]:
+        """Quantos anúncios por portal ('imovelweb', 'olx', ...)."""
+        return {
+            (r["portal"] or "?"): r["n"]
+            for r in self.conn.execute(
+                "SELECT portal, COUNT(*) n FROM anuncios GROUP BY portal"
+            )
+        }
+
     def close(self) -> None:
         self.conn.close()
 
@@ -450,7 +587,37 @@ def _baixar_uma(foto_url: str) -> bytes | None:
     return None
 
 
-def baixar_fotos(anuncio: Anuncio, request_ctx, db: DB) -> int:
+def _escolher_indices(total: int, limite: int) -> list[int]:
+    """Escolhe até `limite` índices ESPALHADOS por uma galeria de `total` fotos.
+
+    Por que não pegar os primeiros N: a ordem típica de um anúncio é fachada,
+    sala, cozinha, quartos, banheiro — e só no FIM o quintal, a edícula e a
+    área externa. Cortar os primeiros 20 de uma galeria de 135 jogaria fora
+    justamente as fotos que a análise visual mais precisa (o quintal é o
+    critério central da busca).
+
+    A seleção mantém a PRIMEIRA e a ÚLTIMA foto e distribui o resto em passos
+    iguais — o mesmo critério que `visao._amostrar_fotos` usa, para o que foi
+    baixado já cobrir toda a extensão da galeria.
+    """
+    if total <= limite:
+        return list(range(total))
+    if limite <= 1:
+        return [0]
+
+    passo = (total - 1) / (limite - 1)
+    escolhidos = sorted({round(i * passo) for i in range(limite)})
+
+    # arredondamento pode repetir ou faltar; a primeira e a última são garantidas
+    if escolhidos[0] != 0:
+        escolhidos.insert(0, 0)
+    if escolhidos[-1] != total - 1:
+        escolhidos[-1] = total - 1
+    return escolhidos[:limite]
+
+
+def baixar_fotos(anuncio: Anuncio, request_ctx, db: DB,
+                 avisar=None) -> int:
     """Baixa as fotos de um anúncio para a pasta local.
 
     `request_ctx` pode ser o `context.request` do Playwright (APIRequestContext)
@@ -458,8 +625,15 @@ def baixar_fotos(anuncio: Anuncio, request_ctx, db: DB) -> int:
     não passa pelo desafio do Cloudflare.
 
     O download é PARALELO (threads) porque cada foto leva ~0,5-1s de latência
-    e um anúncio tem até 50 fotos — em série, as galerias completas levariam
-    horas. A rede é o gargalo, então as threads ajudam bastante.
+    e um anúncio chega a ter mais de 100 fotos — em série, as galerias
+    completas levariam horas. A rede é o gargalo, então as threads ajudam.
+
+    Baixa no máximo `config.FOTOS_MAX_POR_ANUNCIO` fotos (0 = todas): a cauda
+    da distribuição é longa e o excedente não é usado por ninguém.
+
+    `avisar(n)` é chamado a cada foto baixada (n = total até agora). Serve para
+    quem tem uma barra de progresso mostrar que o trabalho continua mesmo
+    quando o anúncio é grande.
 
     Retorna a quantidade de fotos baixadas.
     """
@@ -471,9 +645,20 @@ def baixar_fotos(anuncio: Anuncio, request_ctx, db: DB) -> int:
     pasta = os.path.join(config.FOTOS_DIR, _slug(anuncio.url))
     os.makedirs(pasta, exist_ok=True)
 
-    # monta a lista de tarefas (url -> caminho) ignorando o que já existe
+    # Teto de fotos por anúncio. A cauda da distribuição é longa (há anúncio
+    # com 135 fotos) e a análise usa no máximo 12 — o resto é banda e disco
+    # gastos à toa. Os índices são ESPALHADOS (não os primeiros N), senão o
+    # fim da galeria — onde fica o quintal — seria descartado.
+    # Ver `config.FOTOS_MAX_POR_ANUNCIO` e `_escolher_indices`.
+    limite = config.FOTOS_MAX_POR_ANUNCIO or len(anuncio.fotos_urls)
+    indices = _escolher_indices(len(anuncio.fotos_urls), limite)
+
+    # monta a lista de tarefas (url -> caminho) ignorando o que já existe.
+    # O nome do arquivo usa o índice ORIGINAL da galeria, para a ordem das
+    # fotos na interface continuar a do anúncio.
     tarefas: list[tuple[str, str]] = []
-    for i, foto_url in enumerate(anuncio.fotos_urls):
+    for i in indices:
+        foto_url = anuncio.fotos_urls[i]
         if foto_url in pular:
             continue
         ext = os.path.splitext(foto_url.split("?")[0])[1] or ".jpg"
@@ -498,7 +683,7 @@ def baixar_fotos(anuncio: Anuncio, request_ctx, db: DB) -> int:
                 f.write(dados)
             return (foto_url, caminho)
         except Exception as e:  # noqa: BLE001
-            print(f"  [aviso] falha ao baixar foto {foto_url}: {e}")
+            print(f"  [aviso] falha ao baixar foto {foto_url}: {str(e)[:80]}")
             return None
 
     baixadas = 0
@@ -507,15 +692,21 @@ def baixar_fotos(anuncio: Anuncio, request_ctx, db: DB) -> int:
         for item in tarefas:
             r = _trabalho(item)
             if r:
-                db.salvar_foto(anuncio.url, r[0], r[1])
+                db.salvar_foto_sem_commit(anuncio.url, r[0], r[1])
                 baixadas += 1
+                if avisar:
+                    avisar(baixadas)
+        db.commit()
         return baixadas
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for r in pool.map(_trabalho, tarefas):
             if r:
-                db.salvar_foto(anuncio.url, r[0], r[1])
+                db.salvar_foto_sem_commit(anuncio.url, r[0], r[1])
                 baixadas += 1
+                if avisar:
+                    avisar(baixadas)
+    db.commit()
 
     return baixadas
 

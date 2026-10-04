@@ -21,6 +21,7 @@ from scraper_browser import (
     calcular_match_quintal,
     coletar_bairro,
     e_bairro_alvo,
+    e_casa,
     e_de_sao_paulo,
     montar_url,
     parse_cards,
@@ -109,6 +110,7 @@ def rodar(alvos: list[str] | None = None) -> None:
     print(f"Bairros a coletar: {len(selecionados)}")
 
     novos = 0
+    descartados_tipo = 0
     with sync_playwright() as p:
         ctx = _abrir_contexto(p)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
@@ -131,6 +133,13 @@ def rodar(alvos: list[str] | None = None) -> None:
                     print(f"  [bairro fora da lista] descartado: {nome}")
                     continue
 
+                # rede de segurança: a URL já pede /casas-venda-, mas se o
+                # site devolver apartamento, não entra
+                if not e_casa(anuncio):
+                    print(f"  [não é casa] descartado: {anuncio.titulo[:40]}")
+                    descartados_tipo += 1
+                    continue
+
                 calcular_match_quintal(anuncio)
 
                 if not atende_preco(anuncio):
@@ -149,6 +158,8 @@ def rodar(alvos: list[str] | None = None) -> None:
 
     print(f"\n{'=' * 60}")
     print(f"Novos anúncios salvos: {novos}")
+    if descartados_tipo:
+        print(f"Descartados (não-casa): {descartados_tipo}")
     print(f"Total no banco: {db.total()} anúncios")
     db.close()
 

@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 CIDADE = "sao-paulo"
 UF = "sp"
 NOME_CIDADE = "São Paulo"
+NOME_ESTADO = "São Paulo"   # a API do ZAP/VivaReal usa o nome por extenso
 
 OPERACAO = "venda"
 TIPO = "casas"  # casas | apartamentos | terrenos ...
@@ -81,10 +82,16 @@ BAIRROS: list[Bairro] = [
 CIDADES_ACEITAS = ("sao paulo",)
 UFS_ACEITAS = ("sp", "sao paulo")
 
-# Preço máximo (R$) -> filtro na própria busca
-# Nota: City América é um bairro de alto padrão (mínimo ~R$ 1,75 mi). Com o teto
-# antigo de R$ 900 mil, TODOS os anúncios de lá eram descartados.
-PRECO_MAX = 10_000_000
+# Preço máximo (R$) — teto aplicado ao COLETAR.
+#
+# ATENÇÃO: bairro de alto padrão tem o estoque inteiro acima do teto, e o
+# descarte acontece em SILÊNCIO (o log só diz "acima do preço"). City América,
+# por exemplo, começa em ~R$ 1,75 mi: com teto de R$ 900 mil, os 29 anúncios
+# de lá sumiam sem nenhum aviso.
+#
+# O teto NÃO limita o que você vê: a interface tem filtro "Preço máx." livre,
+# e o banco guarda o que foi coletado com este teto.
+PRECO_MAX = 1_000_000
 # Preço mínimo (opcional, None desativa)
 PRECO_MIN = None
 
@@ -118,6 +125,63 @@ PALAVRAS_NEGATIVAS = [
 # Rede / polite scraping
 # ---------------------------------------------------------------------------
 BASE_URL = "https://www.imovelweb.com.br"
+
+# ---------------------------------------------------------------------------
+# OLX (segundo portal)
+# ---------------------------------------------------------------------------
+# ARMADILHA: a OLX não tem URL por bairro. Anexar o bairro no caminho
+# (`/sao-paulo-e-regiao/vila-mangalot`) é ACEITO mas NÃO filtra — devolve a
+# região inteira em silêncio. Verificado: veio São Caetano do Sul, Santana de
+# Parnaíba, Santo Amaro, Vila Mariana…
+#
+# Quem filtra é a busca textual (`?q=`), e mesmo ela é tolerante: "pirituba"
+# traz Jardim Íris, Vila Barreto e outros vizinhos. Por isso o fluxo é o MESMO
+# do Imovelweb: buscar amplo e validar o bairro pelo endereço de cada anúncio
+# (`e_bairro_alvo`). Isso é uma vantagem — uma busca por bairro acaba
+# capturando anúncios de outros bairros-alvo da mesma região.
+OLX_BASE = "https://www.olx.com.br"
+OLX_REGIAO = "/imoveis/venda/estado-sp/sao-paulo-e-regiao"
+# A paginação é `?o=N` (50 anúncios por página; o site aceita até 100).
+OLX_MAX_PAGINAS = 10
+
+# Quantas vezes tentar um bairro antes de desistir. Existe porque o perfil do
+# Playwright é COMPARTILHADO: se outro processo abrir/fechar o navegador, este
+# recebe "Target page, context or browser has been closed" no meio da coleta.
+# Recriar a sessão resolve, e repetir é seguro — os anúncios já salvos são
+# pulados por URL.
+OLX_MAX_TENTATIVAS_BAIRRO = 3
+
+# ---------------------------------------------------------------------------
+# ZAP Imóveis + Viva Real (mesma API, mesmo inventário)
+# ---------------------------------------------------------------------------
+# Endpoint: GET https://glue-api.vivareal.com/v2/listings
+# Header obrigatório: x-domain (www.zapimoveis.com.br ou www.vivareal.com.br)
+# Responde a `requests` simples — não precisa de navegador.
+#
+# ATENÇÃO: o parâmetro `unitTypes=HOME` é aceito e IGNORADO pela API. A
+# filtragem de tipo é feita no cliente, pelo campo `listing.unitTypes`.
+#
+# O `size` tem LIMITE: 30 funciona, 32 devolve HTTP 400. Verificado.
+GLUE_PAGINA_TAMANHO = 30
+GLUE_MAX_PAGINAS = 20
+GLUE_DELAY_S = 1.0
+
+# ---------------------------------------------------------------------------
+# QuintoAndar
+# ---------------------------------------------------------------------------
+# Endpoint: POST https://apigw.prod.quintoandar.com.br/house-listing-search/v3/search/list
+# Body JSON com `slug` no formato <bairro>-<cidade>-<uf>-brasil.
+# O filtro de tipo AQUI funciona: filters.houseSpecs.houseTypes = ["HOUSE"].
+QUINTO_API = "https://apigw.prod.quintoandar.com.br/house-listing-search/v3/search/list"
+QUINTO_PAGINA_TAMANHO = 50
+QUINTO_MAX_PAGINAS = 10
+QUINTO_DELAY_S = 1.0
+# foto: a API devolve o nome do arquivo; a URL final é montada com este prefixo
+QUINTO_FOTO_BASE = "https://www.quintoandar.com.br/img/crop/landscape/1200x800/"
+
+# Centro aproximado da região de busca (Vila Mangalot / Pirituba). A API usa
+# coordenada + raio, não nome de bairro.
+QUINTO_CENTRO = (-23.501442, -46.745277)
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -173,6 +237,17 @@ def caminho(*partes: str) -> str:
 DB_PATH = caminho("imoveis.db")
 FOTOS_DIR = caminho("fotos")
 
+# Quantas fotos BAIXAR por anúncio (0 = todas).
+#
+# Medido: a mediana é 12 fotos, mas a cauda é longa (há anúncio com 135). A
+# análise visual usa no máximo `VISAO_MAX_FOTOS` e as amostra espalhadas pela
+# galeria — então baixar 135 imagens de 91 KB para analisar 12 é desperdício
+# de banda, disco e tempo (é o gargalo da coleta: ~8 fotos/s no CDN).
+#
+# 20 preserva folga sobre o que a análise usa, mantém o carrossel da interface
+# cheio e corta a cauda: 71% das fotos em vez de 100%.
+FOTOS_MAX_POR_ANUNCIO = 20
+
 # Onde a ponte do navegador grava o HTML capturado
 PONTE_DIR = caminho("html_ponte")
 # Onde ficam os HTMLs salvos quando o Cloudflare bloqueia
@@ -180,11 +255,11 @@ DEBUG_HTML_DIR = caminho("debug_html")
 # Perfil persistente do Playwright (cookies de sessão)
 USER_DATA_DIR = caminho("playwright-profile")
 
-# Quantas fotos baixar ao mesmo tempo. O gargalo do download é a latência da
-# rede (cada foto leva ~0,5-1s), não a CPU — então threads ajudam muito.
-# 8 é um meio-termo: derruba o tempo de ~1 foto/s para ~5-8 fotos/s sem
-# sobrecarregar o CDN nem arriscar bloqueio.
-FOTOS_PARALELO = 8
+# Quantas fotos baixar ao mesmo tempo. O gargalo é a latência da rede (cada
+# foto leva ~0,5-1s), não a CPU nem a banda — medido: 8 fotos/s é o teto, e
+# ele é atingido já com 16 threads. Subir mais só aumenta o risco de o CDN
+# começar a estrangular; 16 fica no joelho da curva.
+FOTOS_PARALELO = 16
 
 # ---------------------------------------------------------------------------
 # Análise visual das fotos (DeepSeek)
@@ -202,24 +277,38 @@ VISAO_BASE_URL = "https://api.deepseek.com"
 
 # Quantas fotos por anúncio enviar. O modelo julga melhor vendo o conjunto
 # (consegue dizer "o quintal aparece nas fotos 3 e 5"), mas cada imagem custa
-# ~650 tokens — então mantemos um teto.
-# Quantas fotos vão por requisição para o modelo de visão.
-# Com a galeria completa o anúncio tem até 50 fotos; mandar todas custaria
-# caro e não melhoraria a resposta. 12 cobre bem fachada, ambientes e quintal.
-VISAO_MAX_FOTOS = 12
-# Espalha as fotos escolhidas pela galeria em vez de pegar as N primeiras
-# (o quintal costuma estar no FIM da galeria). Veja `_amostrar_fotos`.
+# tokens — então mantemos um teto.
+#
+# MEDIDO em 2026-10-03 (não estimado): "low" = 203 tokens/imagem,
+# "original" = 458. Com `detail = original`, enviar TODAS as fotos custa
+# US$ 2,61 para os 1.849 anúncios dos 3 bairros-alvo — US$ 1,04 mais que
+# enviar 12. É irrelevante perto do risco: teto de 12 fotos corta 35% das
+# imagens e pode esconder mofo, rachadura ou entulho.
+#
+# 0 = TODAS as fotos baixadas (sem amostragem).
+# ATENÇÃO: `FOTOS_MAX_POR_ANUNCIO` (acima) limita quantas foram BAIXADAS
+# (20). Para a maioria (mediana 12) isso é a galeria inteira, mas anúncios
+# com 135 fotos na galeria só têm 20 em disco — "todas" significa todas as
+# baixadas.
+VISAO_MAX_FOTOS = 0
+# Com 0 (= todas), a amostragem não faz diferença; mantida para quando
+# houver teto. Veja `_amostrar_fotos`.
 VISAO_AMOSTRAGEM = True
 
 # Quantos anúncios analisar ao mesmo tempo. O gargalo é a espera da API
 # (~3-4s por anúncio), então threads ajudam muito: 6 em paralelo derruba
-# ~12 min de fila para ~2 min. Não subir demais para não esbarrar no
-# limite de requisições por minuto da DeepSeek.
-VISAO_PARALELO = 6
+# ~12 min de fila para ~2 min. O limite de concorrência da DeepSeek para o
+# flash é 2500, então 10 é conservador.
+VISAO_PARALELO = 10
 
-# "low" reduz para 512x512 (~180 tokens/foto): suficiente para "tem quintal
-# com terra?". Use "original" se precisar ler texto na imagem (placa, planta).
-VISAO_DETALHE = "low"
+# "original" mantém a imagem como está (458 tokens/foto, medido).
+#
+# Foi "low" até 2026-10-04. O "low" reduz para 512x512, e o objetivo da
+# análise é justamente ver detalhe fino — mofo, infiltração, rachadura,
+# entulho. Nesses casos 512x512 pode perder o que motivou a análise, e
+# NUNCA comparamos as duas qualidades no resultado (só no preço). Como a
+# diferença para a base inteira é de ~US$ 2, o "original" remove a dúvida.
+VISAO_DETALHE = "original"
 
 # Teto de pixels no lado maior antes do envio (economia + velocidade).
 # A API já redimensiona, mas mandar menor reduz upload e tempo.

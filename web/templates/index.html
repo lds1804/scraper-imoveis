@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Imóveis — Vila Mangalot / Parque São Domingo</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='comp.css') }}">
 </head>
 <body>
   <header class="topbar">
@@ -32,7 +33,7 @@
         </label>
 
         <label>Preço máx.
-          <input type="number" name="preco_max" placeholder="R$ 900.000"
+          <input type="number" name="preco_max" placeholder="R$ 1.000.000"
                  value="{{ filtros.preco_max }}" step="10000" min="0">
         </label>
 
@@ -58,6 +59,7 @@
 
         <label>Ordenar
           <select name="ordem">
+            <option value="abaixo"    {% if filtros.ordem=='abaixo' %}selected{% endif %}>Mais abaixo do mercado</option>
             <option value="score"     {% if filtros.ordem=='score' %}selected{% endif %}>Melhor match</option>
             <option value="preco_asc" {% if filtros.ordem=='preco_asc' %}selected{% endif %}>Menor preço</option>
             <option value="preco_desc"{% if filtros.ordem=='preco_desc' %}selected{% endif %}>Maior preço</option>
@@ -116,6 +118,19 @@
                  {% if filtros.com_problemas %}checked{% endif %}>
           {{ ic.icone('olho', 'ico ico-sm') }} Só com problemas
         </label>
+
+        {% if tem_comp %}
+          <span class="opcoes-divisor" aria-hidden="true"></span>
+
+          {# compara o preço pedido com as vendas reais registradas na
+             prefeitura (ITBI) na mesma rua/CEP #}
+          <label class="check"
+                 title="Compara o preço pedido com as vendas reais registradas na prefeitura (ITBI) na mesma rua ou CEP">
+            <input type="checkbox" name="so_abaixo" value="1"
+                   {% if filtros.so_abaixo %}checked{% endif %}>
+            {{ ic.icone('seta-baixo', 'ico ico-sm') }} Abaixo do preço praticado
+          </label>
+        {% endif %}
       </div>
     </form>
 
@@ -202,6 +217,58 @@
         <a class="card-link" href="{{ url_for('detalhe', anuncio_url=a.url) }}">
           <div class="info">
             <div class="preco">{{ a.preco | moeda }}</div>
+
+            {% if a.comp and a.comp.razao %}
+              {# razão = preço pedido / mediana do ITBI local.
+                 < 1 significa que o anúncio pede menos do que se pratica na
+                 mesma rua/CEP — é o sinal que o usuário quer ver primeiro. #}
+              {% set r = a.comp.razao %}
+              <div class="comp {% if r < 1 %}abaixo{% else %}acima{% endif %}">
+                {% if r < 1 %}
+                  {{ ic.icone('seta-baixo', 'ico ico-sm') }}
+                  <b>{{ ((1 - r) * 100) | round(0, 'floor') | int }}% abaixo</b>
+                {% else %}
+                  {{ ic.icone('seta-cima', 'ico ico-sm') }}
+                  <b>{{ ((r - 1) * 100) | round(0, 'floor') | int }}% acima</b>
+                {% endif %}
+                <span class="comp-ref">
+                  do preço praticado
+                  {% if a.comp.confianca == 'alta' %}· confiança alta
+                  {% elif a.comp.confianca == 'baixa' %}· confiança baixa{% endif %}
+                </span>
+              </div>
+              <div class="comp-nums" title="Baseado nas vendas reais registradas na prefeitura (ITBI), corrigidas pelo IPCA">
+                mediana {{ a.comp.mediana | moeda }}
+                · {{ a.comp.n_transacoes }} venda{% if a.comp.n_transacoes != 1 %}s{% endif %}
+                {%- if a.comp.n_financiadas %} · {{ a.comp.n_financiadas }} financiada{% if a.comp.n_financiadas != 1 %}s{% endif %}{% endif %}
+              </div>
+            {% endif %}
+
+            {% if a.area_of and a.area_of.dif_pct is not none and a.area_grau != 'compativel' %}
+              {# compara a metragem do anúncio com o cadastro da prefeitura.
+                 Pode ser erro de cadastro desatualizado, então a linguagem é
+                 de "confira", não de acusação. #}
+              <div class="area-off {{ a.area_grau }}"
+                   title="Metragem informada pelo anúncio comparada com o cadastro imobiliário da prefeitura (GeoSampa, nível: {{ a.area_of.nivel }}). Uma diferença pode ser só cadastro desatualizado.">
+                {{ ic.icone('casa', 'ico ico-sm') }}
+                cadastro: {{ a.area_of.area_oficial | m2 }}
+                <span>({{ '%+.0f' | format(a.area_of.dif_pct) }}% vs anúncio)</span>
+              </div>
+            {% endif %}
+
+            {% if a.venal %}
+              {# Valor venal ESTIMADO: a prefeitura não publica o venal por
+                 imóvel, então ele é projetado da razão venal/mercado da
+                 região (medida em 112 mil pares de transações). É referência
+                 TRIBUTÁRIA, não de mercado. #}
+              <div class="venal"
+                   title="Valor venal projetado a partir da razão venal/mercado da região ({{ a.venal.regiao }}, {{ a.venal.n_pares }} transações). É referência tributária (IPTU), não preço de mercado.">
+                {{ ic.icone('banco', 'ico ico-sm') }}
+                valor venal ~{{ a.venal.valor_venal | moeda }}
+                <span>({{ (a.venal.razao * 100) | round | int }}% do pedido)</span>
+              </div>
+            {% endif %}
+
             <h3 class="titulo">{{ a.titulo or a.url }}</h3>
             <p class="endereco">
               {{ ic.icone('pin') }}

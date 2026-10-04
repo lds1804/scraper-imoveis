@@ -403,11 +403,13 @@ def _amostrar_fotos(caminhos: list[str], limite: int) -> list[str]:
     A estratégia mantém a foto 0 (fachada, sempre informativa) e distribui
     o restante em passos iguais pelo intervalo todo, garantindo que o fim
     da galeria (quintal, edícula, área gourmet) seja visto.
+
+    `limite <= 0` significa TODAS: devolve a lista inteira sem mexer.
     """
     n = len(caminhos)
-    if n <= limite:
+    if limite <= 0 or n <= limite:
         return list(caminhos)
-    if limite <= 1:
+    if limite == 1:
         return [caminhos[0]]
 
     # passo fracionário: cobre de 0 até n-1 de forma uniforme
@@ -436,11 +438,12 @@ def analisar_anuncio(
     As fotos são enviadas juntas na mesma requisição, o que permite ao modelo
     raciocinar sobre o conjunto do imóvel.
     """
-    limite = max_fotos or config.VISAO_MAX_FOTOS
+    limite = config.VISAO_MAX_FOTOS if max_fotos is None else max_fotos
     fotos = [c for c in caminhos_fotos if c]
-    if config.VISAO_AMOSTRAGEM:
+    # limite <= 0 = todas as fotos; a amostragem só se aplica quando há teto
+    if limite > 0 and config.VISAO_AMOSTRAGEM:
         fotos = _amostrar_fotos(fotos, limite)
-    else:
+    elif limite > 0:
         fotos = fotos[:limite]
 
     if not fotos:

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ a.titulo or 'Anúncio' }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='comp.css') }}">
 </head>
 <body>
   <header class="topbar">
@@ -103,6 +104,69 @@
             <li class="destaque">{{ ic.icone('terreno') }} {{ a.area_terreno | m2 }} de terreno</li>
           {% endif %}
         </ul>
+
+        {% if a.area_of and a.area_of.dif_pct is not none %}
+          {# Cadastro imobiliário fiscal (GeoSampa). A leitura é de conferência:
+             divergência pode ser cadastro desatualizado, não propaganda falsa. #}
+          <div class="area-off-bloco {{ a.area_grau }}">
+            <div class="area-off-cabeca">
+              {{ ic.icone('casa', 'ico') }}
+              <div>
+                <b>
+                  {% if a.area_grau == 'compativel' %}
+                    metragem compatível com o cadastro
+                  {% elif a.area_grau == 'atencao' %}
+                    metragem {{ '%+.0f' | format(a.area_of.dif_pct) }}% vs cadastro
+                  {% else %}
+                    metragem {{ '%+.0f' | format(a.area_of.dif_pct) }}% vs cadastro
+                  {% endif %}
+                </b>
+                <span>
+                  {% if a.area_of.nivel == 'lote' %}
+                    lote exato no cadastro da prefeitura
+                  {% elif a.area_of.nivel == 'rua' %}
+                    mediana de {{ a.area_of.n_lotes }} lotes desta rua
+                  {% else %}
+                    mediana de {{ a.area_of.n_lotes }} lotes do bairro
+                  {% endif %}
+                </span>
+              </div>
+            </div>
+
+            <table class="area-off-tabela">
+              <tr>
+                <th></th>
+                <th>área construída</th>
+                <th>terreno</th>
+              </tr>
+              <tr>
+                <td>anúncio</td>
+                <td>{{ a.area_of.area_anuncio | m2 }}</td>
+                <td>{% if a.area_of.area_terreno_anuncio %}{{ a.area_of.area_terreno_anuncio | m2 }}{% else %}não informado{% endif %}</td>
+              </tr>
+              <tr>
+                <td>cadastro</td>
+                <td>{{ a.area_of.area_oficial | m2 }}</td>
+                <td>{% if a.area_of.area_terreno_oficial %}{{ a.area_of.area_terreno_oficial | m2 }}{% else %}—{% endif %}</td>
+              </tr>
+            </table>
+
+            {% if a.area_grau != 'compativel' %}
+              <p class="bloco-nota">
+                <b>Confira isto.</b> Divergência de metragem <b>não</b> prova que o
+                anúncio está errado: é comum construir ou reformar e não atualizar
+                o cadastro — a prefeitura só toma conhecimento na vistoria ou na
+                venda. Use como motivo para pedir a documentação da área
+                (projeto aprovado, IPTU atualizado) antes de decidir.
+              </p>
+            {% endif %}
+            <p class="bloco-nota">
+              Fonte: cadastro imobiliário fiscal de São Paulo (GeoSampa).
+              O valor venal <b>não</b> é divulgado pela prefeitura, por isso a
+              comparação usa área.
+            </p>
+          </div>
+        {% endif %}
       </div>
 
       {% if a.descricao %}
@@ -192,6 +256,116 @@
               {% endif %}
             </p>
           {% endif %}
+        </div>
+      {% endif %}
+
+      {% if a.comp and a.comp.razao %}
+        {# Comparação com o preço praticado nas vendas reais (ITBI). As
+           transações são listadas embaixo de propósito: o usuário pediu para
+           poder auditar em vez de aceitar um número anônimo. #}
+        {% set c = a.comp %}
+        {% set r = c.razao %}
+        <div class="bloco">
+          <h2 class="bloco-titulo">{{ ic.icone('grafico') }} Preço de mercado</h2>
+
+          <div class="comp-destaque {% if r < 1 %}abaixo{% else %}acima{% endif %}">
+            {% if r < 1 %}
+              {{ ic.icone('seta-baixo', 'ico') }}
+              <div>
+                <b>{{ ((1 - r) * 100) | round(0, 'floor') | int }}% abaixo</b>
+                <span>do preço praticado na região</span>
+              </div>
+            {% else %}
+              {{ ic.icone('seta-cima', 'ico') }}
+              <div>
+                <b>{{ ((r - 1) * 100) | round(0, 'floor') | int }}% acima</b>
+                <span>do preço praticado na região</span>
+              </div>
+            {% endif %}
+          </div>
+
+          <ul class="specs grande">
+            <li>
+              {{ ic.icone('casa') }} pedido {{ c.preco_pedido | moeda }}
+              {% if c.area_ref %} para {{ c.area_ref | m2 }}{% endif %}
+            </li>
+            <li>
+              {{ ic.icone('grafico') }} mediana local {{ c.mediana | moeda }}
+              <span class="fraco">({{ c.preco_m2_medio | moeda }}/m²)</span>
+            </li>
+            <li>
+              {{ ic.icone('ajustar') }} faixa {{ c.minimo | moeda }} – {{ c.maximo | moeda }}
+            </li>
+          </ul>
+
+          <p class="bloco-nota">
+            Base: <b>{{ c.n_transacoes }} venda{% if c.n_transacoes != 1 %}s{% endif %}</b>
+            {% if c.n_numeros %}em {{ c.n_numeros }} endereço{% if c.n_numeros != 1 %}s{% endif %}{% endif %}
+            {% if c.n_financiadas %}
+              · {{ c.n_financiadas }} consta{% if c.n_financiadas == 1 %}m{% endif %} como financiada{% if c.n_financiadas != 1 %}s{% endif %}
+              <span title="Financiamento passa por avaliação do banco, então o valor declarado não pode ser reduzido para pagar menos imposto — é o dado mais confiável">(valor avaliado)</span>
+            {% endif %}
+            · confiança {{ c.confianca }}
+            {% if c.area_ref %}· área ±{{ (25) }}%{% endif %}
+          </p>
+
+          {% if a.transacoes %}
+            <details class="comp-transacoes">
+              <summary>
+                Ver as {{ a.transacoes | length }} vendas usadas na comparação
+              </summary>
+              <table>
+                <thead>
+                  <tr>
+                    <th>data</th><th>área</th><th>valor</th>
+                    <th>R$/m²</th><th>endereço</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for t in a.transacoes %}
+                    <tr>
+                      <td>{% if t.data_transacao and t.data_transacao | length == 8 %}
+                            {{ t.data_transacao[6:8] }}/{{ t.data_transacao[4:6] }}/{{ t.data_transacao[0:4] }}
+                          {% else %}?{% endif %}</td>
+                      <td>{{ t.area | round(0) | int }} m²</td>
+                      <td>{{ t.valor_corrigido | moeda }}</td>
+                      <td>{{ t.preco_m2 | moeda }}</td>
+                      <td class="end">{{ t.logradouro }} {{ t.numero or '' }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              <p class="bloco-nota">
+                Valores corrigidos pelo IPCA (IBGE) para o mês atual, para uma
+                venda de 2010 ser comparável com o preço de hoje.
+                Atenção: o IPCA é a inflação <b>geral</b> — imóveis podem ter
+                valorizado mais ou menos que isso.
+              </p>
+            </details>
+          {% endif %}
+        </div>
+      {% endif %}
+
+      {% if a.venal %}
+        {# O valor venal NÃO é publicado por imóvel: é projetado a partir da
+           razão venal/mercado da região, medida em 112 mil pares de
+           transações do ITBI. Referência tributária, não de mercado. #}
+        <div class="bloco">
+          <h2 class="bloco-titulo">{{ ic.icone('banco') }} Valor venal</h2>
+          <ul class="specs grande">
+            <li>{{ ic.icone('banco') }} ~{{ a.venal.valor_venal | moeda }}
+              <span class="fraco">({{ (a.venal.razao * 100) | round | int }}% do pedido)</span>
+            </li>
+          </ul>
+          <p class="bloco-nota">
+            Base: razão venal/mercado da região <b>{{ a.venal.regiao }}</b>,
+            medida em {{ a.venal.n_pares }} transações reais registradas na
+            prefeitura. A prefeitura <b>não divulga</b> o valor venal por
+            imóvel — este número é projetado, não consultado.
+            Serve para comparar com o IPTU e ver se o pedido está acima do que
+            a prefeitura avalia; <b>não</b> substitui a comparação com preços
+            praticados.
+          </p>
         </div>
       {% endif %}
 

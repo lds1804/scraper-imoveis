@@ -29,7 +29,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import config
-from analise_visual import AnaliseFoto, analisar_anuncio, obter_api_key, tem_api_key
+from visao import AnaliseFoto, analisar_anuncio, obter_api_key, tem_api_key
 from progresso import Barra
 from storage import DB
 
@@ -86,7 +86,8 @@ def main() -> None:
     parser.add_argument("--limite", type=int, default=0, help="máximo de anúncios (0 = todos)")
     parser.add_argument("--refazer", action="store_true", help="reanalisa tudo")
     parser.add_argument("--incluir-falhas", action="store_true", help="refaz os que falharam")
-    parser.add_argument("--bairro", default="", help="filtra por bairro (parte do nome)")
+    parser.add_argument("--bairro", default="",
+                        help="filtra por bairro (parte do nome; use '|' para vários)")
     parser.add_argument("--max-fotos", type=int, default=0, help="fotos por anúncio")
     parser.add_argument("--so-com-fotos", action="store_true", default=True,
                         help="apenas anúncios com fotos (padrão)")
@@ -121,8 +122,12 @@ def main() -> None:
     pendentes = db.sem_analise_visual(incluir_falhas=args.incluir_falhas)
 
     if args.bairro:
-        alvo = args.bairro.lower()
-        pendentes = [r for r in pendentes if alvo in (r["bairro"] or "").lower()]
+        # '|' separa vários bairros: --bairro "mangalot|domitila|sao domingos"
+        alvos = [b.strip().lower() for b in args.bairro.split("|") if b.strip()]
+        pendentes = [
+            r for r in pendentes
+            if any(a in (r["bairro"] or "").lower() for a in alvos)
+        ]
 
     # separa os que têm fotos dos que não têm
     com_fotos, sem_fotos = [], []
@@ -172,10 +177,33 @@ def main() -> None:
         db.close()
         return
 
-    print("\nEstimativa: ~{} foto(s)/anúncio -> ~US$ {:.3f}\n".format(
-        config.VISAO_MAX_FOTOS,
-        len(pendentes) * config.VISAO_MAX_FOTOS * 1024 / 1_000_000 * 0.15,
-    ))
+    # -----------------------------------------------------------------------
+    # ESTIMATIVA DE CUSTO — com tokens MEDIDOS na API, não chutados.
+    #
+    # Medido em 2026-10-03: "low" = 203 tokens/imagem, "original" = 458;
+    # prompt ~907, saída ~265. Preços `deepseek-flash` off-peak: entrada
+    # US$ 0,15/1M e saída US$ 0,60/1M. Off-peak é o dobro do peak, então
+    # mostramos o pior caso (peak) como teto.
+    #
+    # A contagem de FOTOS vem do disco (o que será enviado de fato), não da
+    # constante de teto — com `VISAO_MAX_FOTOS = 0` (todas) a constante não
+    # diria nada.
+    # -----------------------------------------------------------------------
+    tf = {"low": 203, "original": 458}.get(config.VISAO_DETALHE, 458)
+    n_fotos_total = 0
+    for r in pendentes:
+        fotos = db.fotos_do_anuncio(r["url"])
+        limite = config.VISAO_MAX_FOTOS
+        n_fotos_total += len(fotos) if limite <= 0 else min(len(fotos), limite)
+    tok_entrada = len(pendentes) * 907 + n_fotos_total * tf
+    tok_saida = len(pendentes) * 265
+    custo_peak = tok_entrada / 1e6 * 0.30 + tok_saida / 1e6 * 1.20
+    custo_off = tok_entrada / 1e6 * 0.15 + tok_saida / 1e6 * 0.60
+    print(f"Fotos        : {n_fotos_total:,d} em {len(pendentes):,d} anúncios "
+          f"({n_fotos_total/max(len(pendentes),1):.1f}/anúncio)")
+    print(f"Custo        : US$ {custo_off:.2f} off-peak · US$ {custo_peak:.2f} peak "
+          f"(detail={config.VISAO_DETALHE}, ~{tf} tok/foto)")
+    print()
 
     n_ok = n_falha = 0
     destaques_quintal = 0
