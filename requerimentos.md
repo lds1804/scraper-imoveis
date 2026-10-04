@@ -13,11 +13,10 @@ Tudo abaixo foi **medido no banco**, não deduzido da lista. Vários itens que
 estavam marcados como concluídos nesta lista **não estavam** de fato, e é isso
 que esta revisão corrige.
 
-### 1. Refazer a detecção de duplicatas — o mais fácil
-`achar_duplicatas.py --marcar`. O código está pronto e as colunas `dup_*`
-existem, mas estão **todas vazias**: os 9 grupos foram perdidos quando a base
-foi reconstruída. Só CPU, sem custo de API. Precisa antes ter as fotos locais
-(as 57.402 já estão baixadas).
+### 1. Refazer a detecção de duplicatas — FEITO ✅
+`achar_duplicatas.py --marcar`, com a trava de segurança de endereço.
+Resultado: **2.857 anúncios em 1.000 grupos** (60% da base), 949 misturando
+portais. 54 grupos recusados por juntarem ruas/bairros diferentes.
 
 ### 2. Rodar a análise visual nos 2.707 anúncios que faltam
 O script existe e o preço é conhecido: **menos de US$ 7** para o lote inteiro.
@@ -254,17 +253,27 @@ está demonstrado.
       Lambdas para os crawlers e para o site, com execução diária.
 - [x] **Não salvar anúncios repetidos**
       Dedup por URL (chave primária) — reprocessar não duplica.
-- [ ] **Agrupar anúncios repetidos de imobiliárias diferentes** — dados perdidos
-      O código está pronto e a detecção por **pHash das fotos** funciona
-      (comparar URL/ID não serve: cada imobiliária sobe a própria cópia no CDN).
-      **Mas as colunas `dup_*` estão TODAS vazias (0 linhas)** — `dup_grupo`,
-      `dup_qtd`, `dup_melhor`, `dup_n_fotos`, `dup_menor_preco` e
-      `dup_detalhes`. Os 9 grupos que existiam antes foram perdidos, quase
-      certamente quando a base foi reconstruída de 178 para 4.793 anúncios.
-      Para refazer: `.venv\Scripts\python.exe achar_duplicatas.py --marcar`.
-      Marca, **não remove** — preços diferentes entre as cópias são informação
-      útil. Com 57 mil fotos será bem mais lento que os 178 de antes, mas é só
-      CPU: não gasta API.
+- [x] **Agrupar anúncios repetidos de imobiliárias diferentes**
+      Detecção por **pHash das fotos** (comparar URL/ID não serve: cada
+      imobiliária sobe a própria cópia no CDN). Rodado na base atual:
+      **1.054 grupos brutos → 1.000 marcados, 2.857 anúncios (60% da base)**.
+      949 dos grupos **misturam portais** — é o objetivo: a mesma casa no ZAP
+      e na OLX. Exemplo: um sobrado de 108 m² em Vila Bonilha apareceu
+      **25 vezes** (4 no ZAP + 21 na OLX), sempre a R$ 470.000.
+
+      > **Foi precisa uma trava de segurança que não existia.** Foto parecida
+      > não prova que o imóvel é o mesmo, e a união-busca **encadeia**: se A
+      > casa com B e B casa com C, os três entram no grupo mesmo que A e C não
+      > se pareçam. Um anúncio com foto comum a um lançamento costura ruas
+      > diferentes. Medido: **33 grupos juntavam 2+ ruas** e 21 juntavam
+      > 2+ bairros. Como imóvel em rua diferente não pode ser o mesmo imóvel,
+      > a marcação agora **recusa esses 54 grupos** (228 anúncios) e marca só
+      > o resto. A auditoria depois da gravação deu **0 grupos com 2+ ruas,
+      > 0 com 2+ bairros** e exatamente 1 principal por grupo.
+      > Hipótese descartada por medição: **não era o limiar** — entre 31.125
+      > pares de fotos aleatórias, **nenhum** ficou ≤ 10 bits (a mediana é 32,
+      > o esperado por azar). O problema era o encadeamento, não a tolerância.
+      > `verificar_duplicatas.py` confere tudo isso sem gravar nada.
 
 ---
 

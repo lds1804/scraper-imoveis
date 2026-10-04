@@ -26,8 +26,10 @@ import csv
 import os
 import sqlite3
 import sys
+import time
 
 import config
+import endereco
 from storage import DB, _slug
 
 try:
@@ -94,20 +96,38 @@ def _hash_anuncios(
 # Agrupamento
 # ---------------------------------------------------------------------------
 def _limiar_para_hash(limiar: int) -> float:
-    """Converte a distância de Hamming (bits) em limiar relativo do imagehash.
+    """Converte a distância de Hamming (bits) no limiar usado na comparação.
 
-    O imagehash compara `hash - hash` e devolve a fração de bits diferentes
-    sobre o total. Normalizamos para manter o parâmetro em "bits", que é mais
-    intuitivo: limiar 10 de 64 bits = 0.156.
+    ATENÇÃO à semântica de `hash - hash` nesta versão do imagehash (4.3.2):
+    ela devolve a **quantidade de bits diferentes** (um inteiro de 0 a 64),
+    NÃO uma fração. Conferido na mão:
+
+        (a - b) = 28      e     bin(int(a) ^ int(b)).count('1') = 28
+
+    O comentário aqui dizia o contrário ("devolve a fração"), e a conta
+    abaixo — dividir por 64 e multiplicar por 64 na hora de comparar — acaba
+    se anulando, então o resultado sempre esteve certo por acidente.
+
+    O risco fica registrado porque é silencioso: se alguém ajustar a
+    comparação para casar com o comentário antigo (`(a-b) <= tol`, supondo
+    fração), então `(a-b)=28` passaria a ser comparado com `0.156` e o teste
+    ficaria sempre verdadeiro. Toda foto casaria com toda foto, os 4.536
+    anúncios virariam um único grupo e **nenhum erro apareceria**.
     """
     return limiar / 64.0
 
 
-def _agrupar(hashes: dict[str, list], limiar: int) -> list[list[str]]:
+def _agrupar(hashes: dict[str, list], limiar: int,
+             verbose: bool = True) -> list[list[str]]:
     """Agrupa anúncios que compartilham alguma foto (união-busca).
 
     Se A e B têm uma foto igual, e B e C têm outra, os três ficam no mesmo
     grupo — mesmo que A e C não compartilhem nada diretamente.
+
+    A comparação é par a par, então o custo cresce com o QUADRADO do número
+    de anúncios: 4.536 anúncios são 10,3 milhões de pares. Antes esta etapa
+    ficava ~11 minutos sem imprimir nada, o que parecia travamento. Agora
+    informa o progresso a cada 5%.
     """
     urls = list(hashes)
     pai = {u: u for u in urls}
@@ -125,10 +145,19 @@ def _agrupar(hashes: dict[str, list], limiar: int) -> list[list[str]]:
 
     tol = _limiar_para_hash(limiar)
 
-    # índice grosseiro: primeiro hash de cada anúncio -> candidatos.
-    # Comparamos os anúncios dois a dois, mas só entre os que têm hashes.
+    # Comparação dois a dois, só entre quem tem hash. O laço é O(n²) — é o
+    # gargalo do script —, por isso o progresso por tempo decorrido.
+    total = len(urls)
+    t0 = time.time()
+    passo = max(1, total // 20)      # informa 20 vezes ao longo do trabalho
     for i, ua in enumerate(urls):
-        for ub in urls[i + 1 :]:
+        if verbose and i % passo == 0 and i:
+            feito = i / total
+            resta = (time.time() - t0) / feito * (1 - feito) if feito else 0
+            print(f"    comparando {i}/{total} anúncios "
+                  f"({100*feito:.0f}%) — faltam ~{resta/60:.1f} min",
+                  flush=True)
+        for ub in urls[i + 1:]:
             if raiz(ua) == raiz(ub):
                 continue
             if _tem_foto_parecida(hashes[ua], hashes[ub], tol):
@@ -137,7 +166,11 @@ def _agrupar(hashes: dict[str, list], limiar: int) -> list[list[str]]:
     grupos: dict[str, list[str]] = collections.defaultdict(list)
     for u in urls:
         grupos[raiz(u)].append(u)
-    return [g for g in grupos.values() if len(g) > 1]
+    resultado = [g for g in grupos.values() if len(g) > 1]
+    if verbose:
+        print(f"    agrupamento concluído em {(time.time()-t0)/60:.1f} min "
+              f"| {len(resultado):,} grupos", flush=True)
+    return resultado
 
 
 def _tem_foto_parecida(ha: list, hb: list, tol: float) -> bool:
@@ -147,6 +180,21 @@ def _tem_foto_parecida(ha: list, hb: list, tol: float) -> bool:
             if (a - b) <= tol * len(a.hash.flatten()):
                 return True
     return False
+
+
+def _grupos_do_csv(caminho: str) -> list[list[str]]:
+    """Lê os grupos de um CSV gerado antes por `--csv`.
+
+    Existe para não repetir o cálculo quando só falta marcar: a comparação
+    par a par leva ~11 minutos nesta base, e o CSV já guarda o resultado
+    completo (grupo, url). Assim `--reaproveitar` gasta segundos.
+    """
+    por_grupo: dict[str, list[str]] = collections.defaultdict(list)
+    with open(caminho, encoding="utf-8") as fh:
+        for linha in csv.DictReader(fh):
+            if linha.get("url"):
+                por_grupo[linha.get("grupo") or "?"].append(linha["url"])
+    return [g for g in por_grupo.values() if len(g) > 1]
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +207,8 @@ def main() -> None:
     p.add_argument("--saida", default="", help="arquivo de texto (UTF-8)")
     p.add_argument("--csv", default="", help="exporta também em CSV")
     p.add_argument("--quieto", action="store_true")
+    p.add_argument("--reaproveitar", default="", metavar="CSV",
+                   help="usa um CSV de duplicatas já gerado, sem recalcular")
     p.add_argument("--marcar", action="store_true",
                    help="grava os grupos no banco (marca, NÃO remove nada)")
     args = p.parse_args()
@@ -167,15 +217,27 @@ def main() -> None:
     conn.row_factory = sqlite3.Row
 
     print(f"Banco : {config.DB_PATH}")
-    fotos = _fotos_por_anuncio(conn)
-    total_fotos = sum(len(v) for v in fotos.values())
-    print(f"Anúncios com fotos em disco: {len(fotos)} | fotos: {total_fotos}")
-    print(f"Calculando hashes (limiar={args.limiar} bits)...")
+    if args.reaproveitar:
+        grupos = _grupos_do_csv(args.reaproveitar)
+        n_urls = sum(len(g) for g in grupos)
+        print(f"Reaproveitando {args.reaproveitar}: {len(grupos):,} grupos, "
+              f"{n_urls:,} anúncios (sem recalcular)")
+        hashes = {u: [] for g in grupos for u in g}
+        fotos = {}
+    else:
+        fotos = _fotos_por_anuncio(conn)
+        total_fotos = sum(len(v) for v in fotos.values())
+        print(f"Anúncios com fotos em disco: {len(fotos)} | fotos: {total_fotos}")
+        print(f"Calculando hashes (limiar={args.limiar} bits)...")
 
-    hashes = _hash_anuncios(fotos, config.DUP_HASH_SIZE, verbose=not args.quieto)
-    print(f"Hashes calculados para {len(hashes)} anúncios.\n")
+        hashes = _hash_anuncios(fotos, config.DUP_HASH_SIZE, verbose=not args.quieto)
+        print(f"Hashes calculados para {len(hashes)} anúncios.")
+        if len(hashes) > 1:
+            pares = len(hashes) * (len(hashes) - 1) // 2
+            print(f"Agrupando: {pares:,} pares a comparar "
+                  f"(cresce com o quadrado do número de anúncios)...", flush=True)
 
-    grupos = _agrupar(hashes, args.limiar)
+        grupos = _agrupar(hashes, args.limiar, verbose=not args.quieto)
 
     # dados dos anúncios para o relatório
     info = {
@@ -238,10 +300,42 @@ def main() -> None:
         print(f"CSV salvo em {args.csv}")
 
     if args.marcar:
+        # ------------------------------------------------------------------
+        # TRAVA DE SEGURANÇA antes de gravar.
+        #
+        # Foto parecida NÃO prova que o imóvel é o mesmo, e a união-busca
+        # encadeia: se A casa com B e B casa com C, os três entram no mesmo
+        # grupo mesmo que A e C não se pareçam. Um anúncio com foto genérica
+        # (ou comum a um lançamento) costura ruas diferentes e contamina o
+        # grupo inteiro.
+        #
+        # Medido nesta base: de 1.054 grupos, 33 juntavam 2+ RUAS diferentes
+        # (141 anúncios). Como imóvel em ruas diferentes não pode ser o mesmo
+        # imóvel, esses grupos são descartados — não marcados.
+        #
+        # Vale notar que 949 dos 1.054 grupos misturam PORTAIS, que é
+        # exatamente o que se quer detectar (a mesma casa anunciada no ZAP e
+        # na OLX). Cidade e bairro também entram na checagem.
+        # ------------------------------------------------------------------
+        limpos, recusados = [], []
+        for g in grupos:
+            ruas = {endereco.chave_tolerante(info.get(u, {}).get("rua") or "")
+                    for u in g}
+            ruas.discard("")
+            bairros = {info.get(u, {}).get("bairro") for u in g}
+            bairros.discard(None)
+            bairros.discard("")
+            if len(ruas) >= 2:
+                recusados.append((g, "ruas diferentes", sorted(ruas)))
+            elif len(bairros) >= 2:
+                recusados.append((g, "bairros diferentes", sorted(bairros)))
+            else:
+                limpos.append(g)
+
         # escolhe o "principal" de cada grupo: o que tem MAIS FOTOS
         # (é o mais completo) e, em empate, o de MENOR PREÇO.
         pacote = []
-        for g in grupos:
+        for g in limpos:
             precos = [info[u]["preco"] for u in g if info.get(u, {}).get("preco")]
             def chave(u: str):
                 return (-n_fotos.get(u, 0), info.get(u, {}).get("preco") or 1e12)
@@ -252,10 +346,21 @@ def main() -> None:
                 "menor_preco": min(precos) if precos else None,
             })
 
+        if recusados:
+            print(f"\nGrupos RECUSADOS pela trava de segurança: {len(recusados)}"
+                  f" ({sum(len(g) for g, _, _ in recusados)} anúncios)")
+            for g, motivo, vals in sorted(recusados, key=lambda x: -len(x[0]))[:10]:
+                print(f"  {len(g):>3} anúncios · {motivo}: "
+                      f"{', '.join(v[:26] for v in vals[:3])}")
+            if len(recusados) > 10:
+                print(f"  ... e mais {len(recusados)-10} grupos")
+            print("  (rode `verificar_duplicatas.py` para ver todos)")
+
         db = DB()
         marcados = db.marcar_duplicatas(pacote)
         db.close()
-        print(f"\nMarcados {marcados} anúncios em {len(pacote)} grupos (nada foi removido).")
+        print(f"\nMarcados {marcados} anúncios em {len(pacote)} grupos "
+              f"(nada foi removido).")
         print("Use `python listar_duplicatas.py` para ver o resultado.")
 
 
