@@ -24,6 +24,24 @@ Sem isso, os filtros de quintal e de árvore simplesmente **não têm dado em 61
 da base**, e qualquer contagem de "quantos têm quintal" fica respondendo só
 sobre os 3 bairros já analisados — que é um viés invisível na tela.
 
+### 1-B. Herdar número e CEP entre cópias do mesmo imóvel — FEITO ✅
+`herdar_endereco.py`. Custo **zero** (sem rede): os grupos de duplicata ligam a
+mesma casa em portais diferentes, e o dado que só o ZAP publica passa para a
+cópia da OLX/QuintoAndar. **1.761 ruas e 1.371 CEPs** preenchidos. Efeito nas
+medidas de valor: região fina **39,5% → 82,7%**; fallback "cidade"
+**60,5% → 17,3%**.
+
+> Duas armadilhas medidas antes de gravar: (a) o consenso do grupo precisa
+> comparar pela **chave** da rua, não pelo texto — a primeira versão acusou 157
+> "conflitos" que eram só "Rua X" vs "Rua X, 90" (**0 reais**);
+> (b) **número divergente no grupo bloqueia a herança** — há grupos com `2228`
+> e `2326` na mesma rua, que são casas diferentes. 36 grupos bloqueados por
+> isso e 4 por CEP divergente.
+
+> Testado e **descartado**: a API GLUE não acrescenta nada (**0 de 150** itens
+> trariam dado novo) porque o ZAP já foi coletado por ela. E a razão venal por
+> rua não melhora a estimativa (26,3% vs 26,6% — empate técnico).
+
 ### 3. Decidir os pesos da nota de encaixe (JEV)
 O cálculo é trivial depois que os pesos existirem. As features já estão
 calculadas (área, quartos, quintal, conservação, preço vs mercado). A decisão
