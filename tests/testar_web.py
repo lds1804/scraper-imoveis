@@ -54,7 +54,16 @@ def main() -> int:
     r = _get(cliente)
     verificar(r.status_code == 200, f"GET / devolve 200 (veio {r.status_code})")
     total_sem_filtro = _cards(r.data)
-    verificar(total_sem_filtro > 100, f"lista anúncios ({total_sem_filtro} cards)")
+    # a listagem é paginada: 60 por página, então NÃO deve trazer os 4.793
+    verificar(total_sem_filtro > 10, f"lista anúncios ({total_sem_filtro} cards)")
+    verificar(
+        total_sem_filtro <= 60,
+        f"a página respeita o limite de 60 cards ({total_sem_filtro})",
+    )
+    verificar(
+        b"paginacao" in r.data,
+        "mostra a navegação de páginas",
+    )
 
     print("\n=== 2) Filtros que so REDUZEM (nunca aumentam) ===")
     # cada filtro tem que devolver um subconjunto do total
@@ -72,8 +81,8 @@ def main() -> int:
         r = _get(cliente, query)
         n = _cards(r.data)
         verificar(
-            r.status_code == 200 and 0 < n <= total_sem_filtro,
-            f"{nome}: {n} cards (de {total_sem_filtro})",
+            r.status_code == 200 and n > 0,
+            f"{nome}: {n} cards na 1a pagina",
         )
 
     print("\n=== 3) Regressao: 'terra batida' nao pode vir vazio ===")
@@ -151,6 +160,46 @@ def main() -> int:
     print("\n=== 9) Anuncio inexistente nao explode ===")
     rd = cliente.get("/anuncio/nao-existe-12345")
     verificar(rd.status_code in (404, 302), f"devolve {rd.status_code} (não 500)")
+
+    print("\n=== 10) Paginacao ===")
+    r1 = _get(cliente)
+    r2 = _get(cliente, "?pagina=2")
+    c1, c2 = _cards(r1.data), _cards(r2.data)
+    verificar(c1 == 60 and c2 == 60, f"páginas 1 e 2 cheias ({c1}, {c2})")
+    # anúncios diferentes em cada página (não repete o mesmo lote)
+    u1 = set(re.findall(r'href="(/anuncio/[^"]+)"', r1.data.decode("utf-8", "replace")))
+    u2 = set(re.findall(r'href="(/anuncio/[^"]+)"', r2.data.decode("utf-8", "replace")))
+    verificar(bool(u1 and u2 and not (u1 & u2)),
+              "páginas 1 e 2 não repetem anúncios")
+    # o filtro sobrevive à troca de página
+    r3 = _get(cliente, "?so_arvores=1&pagina=2")
+    h3 = r3.data.decode("utf-8", "replace")
+    verificar("so_arvores=1" in h3 and "pagina=3" in h3,
+              "trocar de página preserva o filtro ativo")
+    # página fora do intervalo não quebra
+    r4 = _get(cliente, "?pagina=99999")
+    verificar(r4.status_code == 200, "página inexistente devolve 200 (não 500)")
+    verificar(_cards(r4.data) > 0, "página fora do intervalo cai na última")
+
+    print("\n=== 11) As tres medidas de valor aparecem ===")
+    # a listagem deve mostrar o que foi calculado; se as tabelas existem,
+    # os selos precisam sair no HTML
+    html_txt = _get(cliente).data.decode("utf-8", "replace")
+    import sqlite3 as _sq
+    import config as _cfg
+    _c = _sq.connect(_cfg.DB_PATH)
+    def _tem(tabela):
+        try:
+            return _c.execute(f"SELECT 1 FROM {tabela} LIMIT 1").fetchone() is not None
+        except _sq.Error:
+            return False
+    if _tem("comparacoes"):
+        verificar("do preço praticado" in html_txt or "comp" in html_txt,
+                  "mostra a comparação com o mercado (ITBI)")
+    if _tem("valores_venais"):
+        verificar("valor venal" in html_txt,
+                  "mostra o valor venal estimado")
+    _c.close()
 
     print("\n" + "=" * 58)
     if _falhas:

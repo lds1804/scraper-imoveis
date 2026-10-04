@@ -154,11 +154,69 @@
       {% else %}
         <b>{{ total }}</b> imóveis no total
       {% endif %}
+      {% if n_paginas > 1 %}
+        <span class="paginacao-info">
+          · página {{ pagina }} de {{ n_paginas }}
+          (mostrando {{ cards | length }} de {{ total }})
+        </span>
+      {% endif %}
     </p>
     {% if total %}
       <p class="dica">Clique em um card para ver a galeria completa</p>
     {% endif %}
   </div>
+
+  {# NAVEGAÇÃO ENTRE PÁGINAS. Antes a listagem renderizava os 4.793 anúncios
+     de uma vez: 33,8 MB e ~11s por carregamento. Com 60 por página a resposta
+     cai para dezenas de KB.
+     A URL preserva TODOS os filtros — `url_atual` recebe os args atuais e só
+     troca o `pagina`, senão navegar perderia o filtro. #}
+  {% if n_paginas > 1 %}
+    {% macro link_pagina(n) %}
+      {%- set args = request.args.to_dict() -%}
+      {%- set _ = args.update({'pagina': n}) -%}
+      {{ url_for('index', **args) }}
+    {% endmacro %}
+    <nav class="paginacao" aria-label="Paginação">
+      {% if pagina > 1 %}
+        <a class="pag-seta" href="{{ link_pagina(1) }}" title="Primeira página">«</a>
+        <a class="pag-seta" href="{{ link_pagina(pagina - 1) }}" title="Anterior">‹</a>
+      {% else %}
+        <span class="pag-seta off">«</span>
+        <span class="pag-seta off">‹</span>
+      {% endif %}
+
+      {% set ini = [1, pagina - 2] | max %}
+      {% set fim = [n_paginas, ini + 4] | min %}
+      {% if fim - ini < 4 %}{% set ini = [1, fim - 4] | max %}{% endif %}
+
+      {% if ini > 1 %}
+        <a class="pag-num" href="{{ link_pagina(1) }}">1</a>
+        {% if ini > 2 %}<span class="pag-retic">…</span>{% endif %}
+      {% endif %}
+
+      {% for n in range(ini, fim + 1) %}
+        {% if n == pagina %}
+          <span class="pag-num atual">{{ n }}</span>
+        {% else %}
+          <a class="pag-num" href="{{ link_pagina(n) }}">{{ n }}</a>
+        {% endif %}
+      {% endfor %}
+
+      {% if fim < n_paginas %}
+        {% if fim < n_paginas - 1 %}<span class="pag-retic">…</span>{% endif %}
+        <a class="pag-num" href="{{ link_pagina(n_paginas) }}">{{ n_paginas }}</a>
+      {% endif %}
+
+      {% if pagina < n_paginas %}
+        <a class="pag-seta" href="{{ link_pagina(pagina + 1) }}" title="Próxima">›</a>
+        <a class="pag-seta" href="{{ link_pagina(n_paginas) }}" title="Última">»</a>
+      {% else %}
+        <span class="pag-seta off">›</span>
+        <span class="pag-seta off">»</span>
+      {% endif %}
+    </nav>
+  {% endif %}
 
   <main class="grid">
     {% for a in cards %}

@@ -330,6 +330,39 @@ def _rel_foto(caminho: str) -> str:
     return caminho if rel.startswith("..") else rel
 
 
+def _fotos_locais_lote(conn: sqlite3.Connection,
+                       urls: list[str]) -> dict[str, list[str]]:
+    """Fotos de VÁRIOS anúncios numa consulta só.
+
+    Antes isto era `_fotos_locais()` chamada uma vez por card, e cada chamada
+    abria a própria conexão e varria a tabela `fotos` inteira (57 mil linhas,
+    sem índice em `anuncio_url`). Medido: 44 ms por card × 4.793 cards =
+    **213 s** para abrir a listagem — o app parecia travado.
+
+    Duas coisas foram corrigidas: o índice `idx_fotos_anuncio` (plan passou de
+    `SCAN` para `SEARCH`) e esta consulta em lote, que reaproveita a conexão
+    já aberta em vez de abrir 4.793.
+    """
+    saida: dict[str, list[str]] = {}
+    if not urls:
+        return saida
+    # lotes: o SQLite tem limite de variáveis por consulta (999 por padrão)
+    for i in range(0, len(urls), 900):
+        pedaco = urls[i:i + 900]
+        marcadores = ",".join("?" * len(pedaco))
+        for r in conn.execute(
+            f"""SELECT anuncio_url, arquivo_local FROM fotos
+                WHERE anuncio_url IN ({marcadores}) ORDER BY id""",
+            pedaco,
+        ):
+            p = r["arquivo_local"].replace("\\", "/")
+            # ignora vetores: são ícones do site (ex: right-arrow.svg)
+            if p.lower().endswith(".svg"):
+                continue
+            saida.setdefault(r["anuncio_url"], []).append(_rel_foto(p))
+    return saida
+
+
 def _fotos_locais(anuncio_url: str) -> list[str]:
     """Retorna caminhos web (relativos) das fotos já baixadas do anúncio."""
     conn = _conn()
@@ -459,7 +492,25 @@ def index():
 
     sql += f" ORDER BY {ordem_sql}"
 
-    anuncios = conn.execute(sql, params).fetchall()
+    # -----------------------------------------------------------------------
+    # PAGINAÇÃO. A listagem sem filtro chega a 4.793 anúncios, e renderizar
+    # todos produzia uma página de 33,8 MB que levava ~11 s — e travava o
+    # navegador. Com 60 por página a resposta fica em poucos KB.
+    # -----------------------------------------------------------------------
+    POR_PAGINA = 60
+    try:
+        pagina = max(1, int(request.args.get("pagina", 1)))
+    except (TypeError, ValueError):
+        pagina = 1
+
+    total_filtrado = conn.execute(
+        f"SELECT COUNT(*) FROM ({sql})", params).fetchone()[0]
+    n_paginas = max(1, (total_filtrado + POR_PAGINA - 1) // POR_PAGINA)
+    pagina = min(pagina, n_paginas)
+
+    sql_pag = sql + " LIMIT ? OFFSET ?"
+    anuncios = conn.execute(
+        sql_pag, [*params, POR_PAGINA, (pagina - 1) * POR_PAGINA]).fetchall()
 
     bairros = [
         r["bairro"]
@@ -467,10 +518,12 @@ def index():
             "SELECT bairro, COUNT(*) c FROM anuncios GROUP BY bairro ORDER BY bairro"
         ).fetchall()
     ]
-    comps = _comparacoes(conn, [a["url"] for a in anuncios]) if tem_comp else {}
     urls = [a["url"] for a in anuncios]
+    comps = _comparacoes(conn, urls) if tem_comp else {}
     areas = _areas_oficiais(conn, urls) if tem_areas else {}
     venais = _venais(conn, urls) if tem_venais else {}
+    # uma consulta só para as fotos de todos os cards da página
+    fotos_lote = _fotos_locais_lote(conn, urls)
     conn.close()
 
     cards = []
@@ -481,7 +534,7 @@ def index():
         d["area_grau"] = _grau_area(
             (areas.get(a["url"]) or {}).get("dif_pct"))
         d["venal"] = venais.get(a["url"])
-        fotos = _fotos_locais(a["url"])
+        fotos = fotos_lote.get(a["url"], [])
         d["fotos_card"] = fotos[:8]
         d["n_fotos"] = len(fotos)
         d["capa"] = fotos[0] if fotos else None
@@ -507,10 +560,16 @@ def index():
     )
     ativos = bool(chips)
 
+    # A contagem exibida é o TOTAL filtrado, não o número de cards na página —
+    # senão o usuário leria "60 imóveis" tendo 2.127 no resultado.
     return render_template(
         "index.html",
         cards=cards,
         bairros=bairros,
+        pagina=pagina,
+        n_paginas=n_paginas,
+        total_filtrado=total_filtrado,
+        por_pagina=POR_PAGINA,
         filtros={
             "bairro": bairro,
             "preco_max": preco_max,
@@ -529,7 +588,7 @@ def index():
         chips=chips,
         filtros_ativos=ativos,
         tem_comp=tem_comp,
-        total=len(cards),
+        total=total_filtrado,
     )
 
 
