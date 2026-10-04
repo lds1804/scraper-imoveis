@@ -88,13 +88,18 @@
         <label class="check">
           <input type="checkbox" name="so_quintal" value="1"
                  {% if filtros.so_quintal %}checked{% endif %}>
-          Só com quintal
+          {{ ic.icone('arvore', 'ico ico-sm') }} Quintal
         </label>
 
-        <label class="check">
+        {# O rótulo diz "árvore de porte" e não só "árvores" porque o modelo
+           conta apenas árvore com copa/tronco visível — arbusto e planta em
+           vaso NÃO entram. Sem isso o filtro parece não funcionar quando a
+           pessoa vê uma planta na foto e o anúncio não aparece. #}
+        <label class="check"
+               title="Árvore de porte (copa e/ou tronco visível). Arbustos e plantas em vaso não contam.">
           <input type="checkbox" name="so_arvores" value="1"
                  {% if filtros.so_arvores %}checked{% endif %}>
-          {{ ic.icone('olho', 'ico ico-sm') }} Só com árvores
+          {{ ic.icone('olho', 'ico ico-sm') }} Árvore de porte
         </label>
 
         <span class="opcoes-divisor" aria-hidden="true"></span>
@@ -103,20 +108,6 @@
           <input type="checkbox" name="so_financiamento" value="1"
                  {% if filtros.so_financiamento %}checked{% endif %}>
           Aceita financiamento
-        </label>
-
-        <span class="opcoes-divisor" aria-hidden="true"></span>
-
-        <label class="check">
-          <input type="checkbox" name="so_cuidado" value="1"
-                 {% if filtros.so_cuidado %}checked{% endif %}>
-          {{ ic.icone('olho', 'ico ico-sm') }} Bem cuidado (4+)
-        </label>
-
-        <label class="check">
-          <input type="checkbox" name="com_problemas" value="1"
-                 {% if filtros.com_problemas %}checked{% endif %}>
-          {{ ic.icone('olho', 'ico ico-sm') }} Só com problemas
         </label>
 
         {% if tem_comp %}

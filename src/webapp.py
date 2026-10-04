@@ -137,10 +137,8 @@ def _chips_ativos(filtros: dict) -> list[dict]:
             q["piso_quintal"] = filtros["piso_quintal"]
         if filtros.get("so_arvores") and sem != "so_arvores":
             q["so_arvores"] = "1"
-        if filtros.get("so_cuidado") and sem != "so_cuidado":
-            q["so_cuidado"] = "1"
-        if filtros.get("com_problemas") and sem != "com_problemas":
-            q["com_problemas"] = "1"
+        if filtros.get("so_abaixo") and sem != "so_abaixo":
+            q["so_abaixo"] = "1"
         if filtros.get("ordem") and filtros["ordem"] != ORDEM_PADRAO:
             q["ordem"] = filtros["ordem"]
 
@@ -183,10 +181,6 @@ def _chips_ativos(filtros: dict) -> list[dict]:
         })
     if filtros.get("so_arvores"):
         chips.append({"rotulo": "com árvores (foto)", "url": base("so_arvores")})
-    if filtros.get("so_cuidado"):
-        chips.append({"rotulo": "bem cuidado (foto)", "url": base("so_cuidado")})
-    if filtros.get("com_problemas"):
-        chips.append({"rotulo": "com problemas (foto)", "url": base("com_problemas")})
     if filtros.get("so_abaixo"):
         chips.append({"rotulo": "abaixo do preço praticado", "url": base("so_abaixo")})
 
@@ -404,8 +398,6 @@ def index():
     # filtros que dependem da análise visual das fotos (IA)
     piso_quintal = request.args.get("piso_quintal", "").strip()
     so_arvores = request.args.get("so_arvores") == "1"
-    so_cuidado = request.args.get("so_cuidado") == "1"
-    com_problemas = request.args.get("com_problemas") == "1"
     # comparação com o preço praticado (ITBI)
     so_abaixo = request.args.get("so_abaixo") == "1"
     ordem = request.args.get("ordem", "abaixo")
@@ -461,10 +453,6 @@ def index():
             params.append(piso_quintal)
     if so_arvores:
         sql += " AND a.foto_arvores = 1"
-    if so_cuidado:
-        sql += " AND a.foto_cuidado >= 4"
-    if com_problemas:
-        sql += " AND COALESCE(a.foto_problemas, '') <> ''"
 
     # "abaixo da mediana do ITBI" — o JOIN precisa existir para o filtro valer
     if so_abaixo and tem_comp:
@@ -552,8 +540,6 @@ def index():
             "sem_financiamento": sem_financiamento,
             "piso_quintal": piso_quintal,
             "so_arvores": so_arvores,
-            "so_cuidado": so_cuidado,
-            "com_problemas": com_problemas,
             "so_abaixo": so_abaixo,
             "ordem": ordem,
         }
@@ -580,8 +566,6 @@ def index():
             "sem_financiamento": sem_financiamento,
             "piso_quintal": piso_quintal,
             "so_arvores": so_arvores,
-            "so_cuidado": so_cuidado,
-            "com_problemas": com_problemas,
             "so_abaixo": so_abaixo,
             "ordem": ordem,
         },

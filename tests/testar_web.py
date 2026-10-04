@@ -20,6 +20,7 @@ iniciar()  # poe src/ no sys.path e fixa a raiz como diretorio de trabalho
 import html as htmlmod
 import re
 import sys
+import urllib.parse
 
 import webapp
 
@@ -67,12 +68,14 @@ def main() -> int:
 
     print("\n=== 2) Filtros que so REDUZEM (nunca aumentam) ===")
     # cada filtro tem que devolver um subconjunto do total
+    # (os antigos 'bem cuidado' e 'com problemas' sairam: o usuário pediu
+    #  para tirar — a análise das fotos continua visível no card e no
+    #  detalhe, só não filtra mais)
     filtros = {
-        "?so_quintal=1": "só com quintal",
+        "?so_quintal=1": "com quintal",
         "?so_financiamento=1": "aceita financiamento",
-        "?so_arvores=1": "só com árvores",
-        "?so_cuidado=1": "bem cuidado (4+)",
-        "?com_problemas=1": "só com problemas",
+        "?so_arvores=1": "árvore de porte",
+        "?so_abaixo=1": "abaixo do preço praticado",
         "?piso_quintal=grama": "quintal gramado",
         "?piso_quintal=cimento": "quintal cimentado",
         "?piso_quintal=misto": "quintal misto",
@@ -83,6 +86,34 @@ def main() -> int:
         verificar(
             r.status_code == 200 and n > 0,
             f"{nome}: {n} cards na 1a pagina",
+        )
+
+    print("\n=== 2b) Filtro por bairro ===")
+    # O select lista os bairros existentes e o filtro precisa REALMENTE
+    # reduzir: comparar a contagem exibida, não o número de cards (todos
+    # mostram 60 na primeira página, o que não distingue nada).
+    r0 = _get(cliente)
+    m0 = re.search(r"<b>([\d.]+)</b> im", r0.data.decode("utf-8", "replace"))
+    total_geral = int(m0.group(1).replace(".", "")) if m0 else 0
+    verificar(total_geral > 0, f"total sem filtro = {total_geral}")
+
+    html0 = r0.data.decode("utf-8", "replace")
+    sel = re.search(r'<select name="bairro">(.*?)</select>', html0, re.S)
+    opcoes = re.findall(r'<option value="([^"]+)"', sel.group(1)) if sel else []
+    verificar(len(opcoes) >= 5, f"o select lista {len(opcoes)} bairros")
+
+    for b in opcoes[:3]:
+        rb = _get(cliente, "?bairro=" + urllib.parse.quote(b))
+        mb = re.search(r"<b>([\d.]+)</b> im", rb.data.decode("utf-8", "replace"))
+        tot = int(mb.group(1).replace(".", "")) if mb else -1
+        verificar(
+            0 < tot < total_geral,
+            f"bairro {b!r}: {tot} anúncios (< {total_geral} do total)",
+        )
+        # o bairro escolhido precisa ficar marcado no select
+        verificar(
+            f'<option value="{b}" selected' in rb.data.decode("utf-8", "replace"),
+            f"bairro {b!r} fica selecionado no select",
         )
 
     print("\n=== 3) Regressao: 'terra batida' nao pode vir vazio ===")
@@ -99,9 +130,14 @@ def main() -> int:
 
     print("\n=== 4) Filtros combinados se acumulam ===")
     r1 = _get(cliente, "?so_arvores=1")
-    r2 = _get(cliente, "?so_arvores=1&com_problemas=1")
-    n1, n2 = _cards(r1.data), _cards(r2.data)
-    verificar(n2 <= n1, f"arvores+problemas ({n2}) <= arvores ({n1})")
+    r2 = _get(cliente, "?so_arvores=1&so_financiamento=1")
+
+    def _conta(r):
+        m = re.search(r"<b>([\d.]+)</b> im", r.data.decode("utf-8", "replace"))
+        return int(m.group(1).replace(".", "")) if m else 0
+
+    t1, t2 = _conta(r1), _conta(r2)
+    verificar(t2 <= t1, f"arvores+financiamento ({t2}) <= arvores ({t1})")
 
     print("\n=== 5) Filtro impossivel devolve vazio, sem erro ===")
     r = _get(cliente, "?preco_max=1")

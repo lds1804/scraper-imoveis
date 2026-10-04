@@ -1,11 +1,28 @@
-# Coleta e parsing
-requests>=2.32.3
-beautifulsoup4>=4.12.3
-playwright>=1.40
+# Dependências do projeto.
+#
+# Versões conferidas em 2026-10-04 contra o ambiente em uso (`pip freeze`).
+# O piso (`>=`) permite atualizações de correção sem quebrar o projeto; o
+# valor é a versão que foi de fato testada.
+#
+# Para instalar:
+#   .venv\Scripts\python.exe -m pip install -r requirements.txt
+#   .venv\Scripts\playwright.exe install chromium
 
-# Interface web
-Flask>=3.0
+# --- coleta e parsing ---
+requests>=2.34.2
+beautifulsoup4>=4.15.0
+playwright>=1.63.0
 
-# Análise das fotos e detecção de duplicatas
-Pillow>=10.0
-imagehash>=4.3
+# --- interface web ---
+Flask>=3.1.3
+
+# --- análise das fotos e detecção de duplicatas ---
+Pillow>=12.3.0
+imagehash>=4.3.2
+
+# --- ITBI e modelo de valor ---
+# openpyxl: leitura das planilhas .xlsx do ITBI (src/itbi.py, src/ingerir_itbi.py)
+openpyxl>=3.1.5
+# numpy: regressão do modelo terreno+construção (src/modelo_casa.py) e a
+# elasticidade do R$/m² por tamanho de lote (`estimar_elasticidade`)
+numpy>=2.5.3

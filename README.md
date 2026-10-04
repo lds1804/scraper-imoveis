@@ -17,33 +17,91 @@ then compares what the *text* claims against what the *photos* actually show.
 
 | Step | What happens |
 |---|---|
-| **1. Collect** | Playwright scrapes listing pages for 4 neighborhoods, validating that every ad is truly in São Paulo and in a target neighborhood |
-| **2. Enrich** | Opens each ad's detail page for the full description, room counts, financing info, and the **complete photo gallery** (up to 50 photos — the listing shows only 1) |
+| **1. Collect** | Playwright/HTTP across **four portals** (Imovelweb, OLX, ZAP+VivaReal, QuintoAndar), validating that every ad is truly in São Paulo and in a target neighborhood |
+| **2. Enrich** | Opens each ad's detail page for the full description, room counts, financing info, and the **complete photo gallery** (up to 135 photos — the listing shows only 1) |
 | **3. Deduplicate** | Finds the same property listed by different real-estate agencies using perceptual hashing (pHash) on the photos. **Marks, never removes** — different prices across copies are useful signal |
 | **4. Analyze** | Sends photos to a vision model (DeepSeek) and extracts attributes no one writes in the ad text: yard type, trees, lighting, ventilation, upkeep, and **problems** (mold, leaks, debris, unfinished work, abandonment) |
-| **5. Serve** | Flask web UI with combining filters, a carousel, and a "what the photos show" panel on every card |
+| **5. Value** | Prices the ad against **three independent references** (see below) |
+| **6. Serve** | Flask web UI with combining filters, pagination, and a "what the photos show" panel on every card |
 
 ### Current dataset
 
 | Metric | Value |
 |---|---|
-| Ads | **178** |
-| Photos downloaded | **4,756** |
-| Ads with full gallery | 174 / 178 |
-| Ads with vision analysis | **178 / 178** (0 failures) |
-| Duplicate groups found | 9 |
-| Neighborhoods with results | Vila Mangalot (90), Parque São Domingos (30), Parque Maria Domitila (29), City América (29) |
+| Ads | **4,793** (zap 1,895 · olx 1,890 · quintoandar 877 · imovelweb 131) |
+| Photos downloaded | **57,402** |
+| Ads with vision analysis | **1,829** in the 3 target neighborhoods (0 failures) |
+| ITBI transactions ingested | **537,354** (2006–2026, IPCA-adjusted) |
+| GeoSampa fiscal lots | **26,475** |
+| Neighborhoods with results | 18 |
+
+### Three independent value references
+
+The asking price is compared against three sources that don't share data,
+so agreement between them means something:
+
+| Reference | Source | What it answers | Coverage |
+|---|---|---|---|
+| **Market** | ITBI (real transactions) | "does it ask above or below what actually trades here?" | 83% |
+| **Cadastral** | GeoSampa fiscal register | "does the stated floor area match the city's record?" | 46% |
+| **Tax value** | ITBI (venal / price ratio) | "how does it compare to the IPTU base?" | 100% |
+
+---
+
+## Pricing a house is not `price ÷ area`
+
+The first version compared ads to ITBI by dividing value by floor area — which
+is how you price an **apartment**, not a house. For a house the value is
+**land + building, and the building depreciates**.
+
+Measuring the data changed the model. A direct regression
+`value ~ land + building` **fails**, and the reason is instructive:
+
+```
+building area held FIXED at 90–130 m², varying the land:
+    land  67 m²  →  median value  R$ 479,000
+    land 110 m²  →  median value  R$ 490,000
+    land 460 m²  →  median value  R$ 500,000
+    (land 5.8x larger, value 1.04x — it barely moves)
+```
+
+The same holds for the city's own **venal** value: fitting it against the two
+areas gives land R$ 65/m² against building R$ 7,081/m². So this is not a
+defect of the ITBI data — **land value lives in location, not in its own
+square metres.** That is exactly why the city's official valuation table
+works per *block face*, a dimension the microdata doesn't publish.
+
+What works is estimating the two separately:
+
+| | source | São Paulo median |
+|---|---|---|
+| **Land R$/m²** | transactions of properties **with almost no building** (≤40 m²) — there the price *is* the land price | **R$ 1.805**/m² (at a 135 m² lot) |
+| **Building R$/m²** | residual `value − land × land_price_of_the_region` ÷ building area | **R$ 2,296**/m² |
+
+```
+value = land_area × land_R$/m²_of_the_region
+      + building_area × building_R$/m²_of_the_region
+```
+
+Land area **does** enter the model — multiplied by the region's price. The
+price per m² is then adjusted by lot size, because the data show it falling
+as the lot grows (`R$/m² = 10,648 × area^−0.662`, measured on 2,881 sales):
+a 60 m² lot trades at R$ 3,960/m², a 500 m² lot at R$ 688/m².
+
+**Validation** against 4,000 real transactions: median estimated/actual
+**1.06** (no bias), within ±20% in **42%** of cases. That is enough to say
+*"this band"*, not *"this exact value"* — and the UI says so.
 
 ---
 
 ## The interesting finding
 
-The vision pass found **37 ads (21%) with visible problems the listing text never
+The vision pass found ads with **visible problems the listing text never
 mentions** — mold, leaks, debris, unfinished construction.
 
 And critically: the yard score computed from the *text* is nearly identical
-whether or not a photo shows a problem (0.68 vs 0.64). The text simply doesn't
-discriminate on condition. The photos do.
+whether or not a photo shows a problem. The text simply doesn't discriminate
+on condition. The photos do.
 
 The analysis is internally consistent, which is what makes it trustworthy —
 upkeep score correlates monotonically with problems found:
@@ -54,6 +112,23 @@ upkeep 3/5  →  20/51 ads with problems  ( 39%)
 upkeep 4/5  →   6/90 ads with problems  (  7%)
 upkeep 5/5  →   0/25 ads with problems  (  0%)
 ```
+
+### Image quality changed the results — measured, not assumed
+
+The vision pass originally ran with `detail: "low"`, which downscales to
+512×512. That is cheaper, and for a while the cost difference was the only
+thing known about it. Re-running the **same 131 ads** at `detail: "original"`
+showed what the compression was costing:
+
+| attribute | `low` | `original` | newly detected |
+|---|---|---|---|
+| large windows | 44 | **69** | **+30 ads** |
+| trees | 59 | **81** | **+26 ads** |
+| problems | 36 | **43** | **+7 ads** |
+| yard with dirt | 4 | **0** | 4 *false positives* removed |
+
+Fine detail is exactly what disappears at 512×512 — and fine detail is what
+the analysis is for. Overall cost for the whole dataset: **under US$ 3**.
 
 ---
 
@@ -94,10 +169,23 @@ All commands are run **from the project root**:
 ```bash
 python main.py --listar       # see the configured neighborhoods
 python main.py --dry-run      # sanity-check the scraping access first
-python main.py                # full collection
+python main.py                # Imovelweb collection
+python coletar_tudo.py        # ZAP + QuintoAndar + OLX (sequential)
 python enriquecer_detalhes.py # detail pages: full galleries + descriptions
 python achar_duplicatas.py --marcar
 python analisar_visao.py      # vision analysis
+
+# ITBI: real transaction data (21 spreadsheets, ~532 MB)
+python itbi.py --baixar       # discover + download (URLs change monthly)
+python ingerir_itbi.py        # ingest into SQLite, IPCA-adjusted
+python comparar_itbi.py       # asking price vs. transacted price
+
+# value references
+python modelo_casa.py --ajustar    # land + building model
+python valor_venal.py --ajustar    # venal / market ratio per region
+python geosampa.py --ingerir       # city fiscal register (WFS, no key)
+python referencia_geosampa.py --calcular   # area cross-check
+
 python webapp.py              # http://127.0.0.1:5000
 ```
 
@@ -108,11 +196,11 @@ python webapp.py              # http://127.0.0.1:5000
 ```
 src/                    production code
   config.py             neighborhoods, price limits, keywords, tunables
-  scraper_browser.py    Playwright scraping + all parsing logic
+  scraper_browser.py    Imovelweb scraping + all shared parsing
   storage.py            SQLite persistence + photo downloads
   visao.py              vision analysis library
   progresso.py          ASCII progress bar
-  main.py               collection orchestration
+  main.py               Imovelweb collection orchestration
   enriquecer_detalhes.py   completion via each ad's detail page
   processar_ponte.py    processes HTML captured by the browser bridge
   achar_duplicatas.py   pHash duplicate detection
@@ -120,8 +208,27 @@ src/                    production code
   auditar_localidade.py neighborhood audit / cleanup
   webapp.py             Flask server
 
+  # other portals
+  olx.py / olx_principal.py
+  zap.py / glue_api.py      ZAP and VivaReal share one inventory
+  quintoandar.py / quintoandar_principal.py
+  coletar_tudo.py           runs them in sequence
+
+  # ITBI + valuation
+  itbi.py               discover + download the monthly spreadsheets
+  ingerir_itbi.py       ingest into SQLite (columns mapped by NAME)
+  indices.py            IPCA correction via IBGE
+  endereco.py           address normalization (the two sources disagree)
+  comparar_itbi.py      asking vs. transacted price, cascade of 3 levels
+  modelo_casa.py        land + building model (see above)
+  valor_venal.py        venal / market ratio per region
+  geosampa.py           São Paulo fiscal register via open WFS
+  referencia_geosampa.py  area cross-check against the city's record
+
 tests/                  run directly, no server needed
-  testar_web.py         route / filter tests
+  testar_web.py         route / filter / pagination tests
+  testar_tipo.py        house-vs-apartment classifier (32 checks)
+  medir_rotas.py        times every route — use this when the UI feels slow
   testar_parser.py      listing parser against saved HTML
   verificar_localidade.py
   verificar_financiamento.py
@@ -132,12 +239,14 @@ tools/                  one-off debug helpers
   inspecionar_detalhe.py   dump a detail page
   descobrir_bairro.py      find the right neighborhood slug
   migrar_dados.py          schema migration
+  limpar_por_filtro.py     remove ads failing current filters
 
 antigo/                 superseded, kept for reference
 
 web/                    templates and CSS
   templates/            Jinja templates
-  static/style.css
+  static/style.css      main stylesheet
+  static/comp.css       value references + pagination styles
 
 dados/                  generated outputs (gitignored)
 fotos/                  downloaded photos, one folder per ad (gitignored)
@@ -218,6 +327,48 @@ listing was thought to be sufficient. The result: 129 detail pages captured and
 processed "successfully" while every ad stayed at 1 photo. Fixed — photos went
 from 675 to 4,756.
 
+### Inflation adjustment: IGP-M is not obtainable, IPCA is
+
+The IGP-M index would be the natural choice for real-estate correction. It
+**could not be fetched**, for a concrete reason: `api.bcb.gov.br` returns
+**NXDOMAIN** — verified against two independent public resolvers (Google and
+Cloudflare both answer `Status: 3`). It is not a network block; the hostname no
+longer exists in public DNS. The FGV portal rejects TLS, and IPEAData times out.
+Other BCB hostnames resolve to the *same* IP but serve a different application.
+
+The IPCA (IBGE, aggregate 1737) works and is what the project uses. It is also
+sufficient, for an empirical reason: the median R$/m² per year, IPCA-adjusted,
+runs from 1.000 (2006) to 2.285 (2014) and back to 1.888 (2026) — so the IPCA
+already carries the real-estate cycle, since property rose **more** than general
+inflation up to 2014 and **less** afterwards.
+
+### Nobody publishes the venal value per property
+
+São Paulo's official valuation table (Planta Genérica de Valores) is used to
+levy IPTU and **is not published per property**. This was checked, not assumed:
+none of the 483 GeoSampa WFS layers carries a value, and the open-data portal
+returns zero results for `venal`, `PGV` and `planta generica de valores`.
+
+The ITBI, however, records the venal value on **98% of transactions** (528k of
+537k). Since each transaction carries both the venal value and the price, the
+**ratio** can be measured rather than guessed. It is stable per region (median
+0.82 city-wide, 0.84–1.00 in the three target neighborhoods), so the venal value
+is projected as `asking_price × regional_ratio`. The UI states plainly that the
+number is *projected, not looked up*.
+
+### The tax register gives a second opinion on floor area
+
+The GeoSampa fiscal register provides the city's own floor-area and land-area
+figures. Comparing them against the ad is useful — but with a caveat that the UI
+repeats: **a mismatch does not prove the ad is lying**. Building or renovating
+without updating the register is common; the city only learns of it during an
+inspection or a sale. It is a signal to ask for the documentation, not an
+accusation.
+
+Matching runs from the exact lot (by street number) down to the street and the
+fiscal block. When the exact lot is matched, the median difference is **+0.0%**
+— which validates both sides.
+
 ### Photos are sampled, not taken from the top
 
 Typical gallery order is facade → living room → kitchen → bedrooms → bathroom,
@@ -251,8 +402,8 @@ Both network-bound stages are parallelized:
 
 | Stage | Before | After |
 |---|---|---|
-| Photo download (8 threads) | ~1 photo/s | **~5.7 photos/s** |
-| Vision analysis (6 threads) | 3.4 s/ad | **~0.9 s/ad** |
+| Photo download (8→16 threads) | ~1 photo/s | **~5.7 photos/s** |
+| Vision analysis (6→10 threads) | 3.4 s/ad | **~0.9 s/ad** |
 
 Disabling the model's `thinking` mode was the single biggest win: 50 s/ad → 3.4 s.
 
@@ -260,6 +411,55 @@ Everything resumes: re-running skips what's already downloaded or analyzed.
 
 The progress bar (`progresso.py`) is hand-rolled in plain ASCII because
 PowerShell 5.1 with cp1252 chokes on `tqdm`/`rich` Unicode output.
+
+### The web UI appeared to hang — it was two real defects
+
+`GET /` stopped returning. No error, no timeout, just minutes of nothing. It
+looked like an environment problem because the tests hung at the same point.
+Measuring (`tests/medir_rotas.py`) found two causes:
+
+**1. `fotos` had no index on `anuncio_url`.** `_fotos_locais()` was called once
+per card, and each call opened its own connection and ran `SCAN fotos` over
+57k rows. Measured at **44.5 ms per card × 4,793 cards = 213 s**. Adding
+`idx_fotos_anuncio` took it to **0.118 ms** (`SCAN` → `SEARCH`).
+
+**2. It rendered all 4,793 cards at once** — a 33.8 MB page taking ~11 s.
+
+| | before | after |
+|---|---|---|
+| `GET /` | never returned | **1.01 s** · 514 KB |
+| slowest route | 13.6 s | **1.01 s** |
+| all routes | 37.3 s | **2.4 s** |
+| `testar_web.py` | hung | **35/35 in 8 s** |
+
+Fixed with indexes on six tables, pagination of 60 preserving every filter, and
+a batched photo query that reuses one connection instead of opening 4,793.
+
+### Timing a hanging process
+
+A hang is invisible to normal logging: output only appears when the process
+*finishes*, so a deadlock looks identical to slowness. What works is running
+with `python -u` (unbuffered) plus `flush=True`, redirecting to a file, and
+reading that file while the process runs. That is how the hang was localized —
+the log sat at 30 bytes for 60 seconds.
+
+---
+
+## Bugs found by measuring, not by reading
+
+Worth recording, because in each case the code looked correct and an earlier
+conclusion was wrong:
+
+- **Land R$/m² looked too low (R$ 1,322).** It was one average for every lot
+  size, and the median ad lot is large. The price per m² falls as lots grow.
+- **The secret scanner said "safe to publish."** Its root pointed at `tests/`
+  instead of the project, so it scanned 9 files instead of 106 and never read
+  the `.env`. A scanner that undercounts is worse than none.
+- **The UI hang.** Missing index, not a slow query — the `EXPLAIN` said so.
+- **"No dirt yards existed."** The filter asked for the predominant floor;
+  dirt plus a concrete corner is `misto`. Now it asks "has dirt".
+- **Photos stopped at 1 per ad.** `atualizar_detalhe()` accepted and silently
+  discarded the gallery.
 
 ---
 
