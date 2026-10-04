@@ -166,6 +166,22 @@
             {{ ic.icone('seta-baixo', 'ico ico-sm') }} Abaixo do preço praticado
           </label>
         {% endif %}
+
+        {% if tem_dup %}
+          <span class="opcoes-divisor" aria-hidden="true"></span>
+
+          {# A MESMA casa é anunciada por várias imobiliárias — medido: 2.857
+             anúncios em 1.000 grupos, e um sobrado apareceu 25 vezes. Aqui a
+             escolha é mostrar UMA linha por imóvel (a oferta mais barata) ou
+             todas as cópias. O campo é invertido de propósito: desmarcado =
+             uma linha, que é o padrão. #}
+          <label class="check"
+                 title="A mesma casa costuma ser anunciada por várias imobiliárias. Marcado, mostra todas as cópias; desmarcado, mostra só a oferta mais barata de cada imóvel.">
+            <input type="checkbox" name="todas" value="1"
+                   {% if filtros.todas %}checked{% endif %}>
+            {{ ic.icone('copias', 'ico ico-sm') }} Mostrar anúncios repetidos
+          </label>
+        {% endif %}
       </div>
     </form>
 
@@ -398,6 +414,26 @@
                 </li>
               {% endif %}
             </ul>
+
+            {% if a.n_copias and a.n_copias > 1 %}
+              {# Aviso de que o MESMO imóvel tem outras ofertas. Quando a lista
+                 mostra só uma linha por imóvel (padrão), este card é a oferta
+                 MAIS BARATA, e o aviso informa quanto as outras pedem — para
+                 o usuário saber que existe margem de negociação entre
+                 imobiliárias e que ele já está vendo a menor. #}
+              <a class="card-copias"
+                 href="{{ url_for('index', **dict(request.args.to_dict(flat=False), todas=['1'])) }}"
+                 title="Este é o mesmo imóvel anunciado por outras imobiliárias. Clique para ver todas as ofertas.">
+                {{ ic.icone('copias') }}
+                {% if a.preco and a.preco_max_copias and a.preco_max_copias > a.preco %}
+                  mais {{ a.n_copias - 1 }} anúncio{% if a.n_copias - 1 != 1 %}s{% endif %}
+                  deste imóvel, até {{ a.preco_max_copias | moeda }}
+                {% else %}
+                  mais {{ a.n_copias - 1 }} anúncio{% if a.n_copias - 1 != 1 %}s{% endif %}
+                  deste imóvel
+                {% endif %}
+              </a>
+            {% endif %}
 
             {% if a.detalhe_ok and not a.area_terreno %}
               <div class="card-aviso" title="A página do anúncio não informa a área do terreno">

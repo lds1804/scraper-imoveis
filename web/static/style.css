@@ -532,6 +532,26 @@ a { color: inherit; }
 }
 .card-aviso .ico { width: 13px; height: 13px; opacity: .75; }
 
+/* ---------- aviso de anúncios repetidos ---------- */
+/* Diz que o MESMO imóvel tem outras ofertas. É um link (leva para a lista
+   com todas as cópias), por isso usa a cor do accent e não o cinza do aviso
+   comum — a diferença visual sinaliza que dá para clicar. */
+.card-copias {
+  display: inline-flex; align-items: center; gap: 6px;
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 5px 10px;
+  background: var(--accent-claro);
+  border: 1px solid #ccd9ea;
+  border-radius: var(--r-sm);
+  color: var(--accent);
+  font-size: .74rem; font-weight: 600;
+  text-decoration: none;
+  transition: background .15s ease, border-color .15s ease;
+}
+.card-copias:hover { background: #dce7f6; border-color: var(--accent); }
+.card-copias .ico { width: 13px; height: 13px; opacity: .85; }
+
 /* ---------- análise visual das fotos (IA) ---------- */
 /* Bloco que separa o que foi LIDO DO TEXTO do que foi VISTO NA FOTO.
    A borda esquerda tracejada lembra que é inferência, não dado do anúncio. */

@@ -299,6 +299,43 @@ def _tem_venais(conn: sqlite3.Connection) -> bool:
         return False
 
 
+def _tem_duplicatas(conn: sqlite3.Connection) -> bool:
+    """Existe pelo menos um anúncio marcado como cópia de outro?
+
+    Sem isso a listagem não pode mostrar "uma linha por imóvel", e usar o
+    filtro com a coluna ausente devolveria erro em vez de lista.
+    """
+    try:
+        return conn.execute(
+            "SELECT 1 FROM anuncios WHERE dup_grupo IS NOT NULL LIMIT 1"
+        ).fetchone() is not None
+    except sqlite3.Error:
+        return False
+
+
+def _copias_dos_grupos(conn: sqlite3.Connection, anuncios) -> dict[str, dict]:
+    """Quantas cópias tem o grupo de cada anúncio, e a variação de preço.
+
+    Serve para o aviso no card ("+24 anúncios do mesmo imóvel, de R$ 470.000
+    a R$ 499.000"): o usuário vê que existem outras ofertas do mesmo imóvel
+    sem precisar abrir nada.
+    """
+    grupos = {a["dup_grupo"] for a in anuncios if a["dup_grupo"] is not None}
+    if not grupos:
+        return {}
+    marcadores = ",".join("?" * len(grupos))
+    faixas: dict[object, tuple] = {}
+    for r in conn.execute(
+        f"""SELECT dup_grupo g, COUNT(*) n,
+                   MIN(preco) menor, MAX(preco) maior
+            FROM anuncios WHERE dup_grupo IN ({marcadores})
+            GROUP BY dup_grupo""",
+        list(grupos),
+    ):
+        faixas[r["g"]] = (r["n"], r["menor"], r["maior"])
+    return faixas
+
+
 def _venais(conn: sqlite3.Connection, urls: list[str]) -> dict[str, dict]:
     """Valor venal estimado (referência tributária) de vários anúncios."""
     if not urls:
@@ -432,6 +469,11 @@ def index():
     so_arvores = request.args.get("so_arvores") == "1"
     # comparação com o preço praticado (ITBI)
     so_abaixo = request.args.get("so_abaixo") == "1"
+    # Mostrar só UMA linha por imóvel. A mesma casa é anunciada por várias
+    # imobiliárias (medido: 2.857 anúncios em 1.000 grupos; um sobrado
+    # apareceu 25 vezes). Sem isso a lista repete o mesmo imóvel e o usuário
+    # perde tempo relendo. Marcado por padrão; `?todas=1` desliga.
+    todas = request.args.get("todas") == "1"
     ordem = request.args.get("ordem", "abaixo")
 
     # "abaixo da mediana do ITBI": razão = preço pedido / mediana das
@@ -440,6 +482,7 @@ def index():
     tem_comp = _tem_comparacoes(conn)
     tem_areas = _tem_areas(conn)
     tem_venais = _tem_venais(conn)
+    tem_dup = _tem_duplicatas(conn)
 
     # Todas as colunas do WHERE ganham o prefixo `a.` e o LEFT JOIN entra
     # sempre que a tabela de comparações existe. O LEFT JOIN é necessário
@@ -495,6 +538,13 @@ def index():
     if so_arvores:
         sql += " AND a.foto_arvores = 1"
 
+    # UMA linha por imóvel: só o anúncio principal do grupo de duplicatas
+    # (o de menor preço, escolhido em `achar_duplicatas.py --marcar`).
+    # Quem não está em grupo nenhum (`dup_grupo IS NULL`) continua aparecendo:
+    # não ter cópia não é motivo para sumir da lista.
+    if tem_dup and not todas:
+        sql += " AND (a.dup_grupo IS NULL OR a.dup_melhor = 1)"
+
     # "abaixo da mediana do ITBI" — o JOIN precisa existir para o filtro valer
     if so_abaixo and tem_comp:
         sql += " AND c.razao IS NOT NULL AND c.razao < 1"
@@ -519,7 +569,10 @@ def index():
             "recentes": "a.rowid DESC",
         }.get(ordem, "a.score_quintal DESC, a.preco ASC")
 
-    sql += f" ORDER BY {ordem_sql}"
+    # Desempate final: quem é principal do seu grupo vem antes. Dois anúncios
+    # com a MESMA razão (ou o mesmo preço) empatariam, e sem isto a posição
+    # ficaria arbitrária. Vale nos dois ramos acima, por isso entra depois.
+    sql += f" ORDER BY {ordem_sql}, a.dup_melhor DESC"
 
     # -----------------------------------------------------------------------
     # PAGINAÇÃO. A listagem sem filtro chega a 4.793 anúncios, e renderizar
@@ -551,6 +604,8 @@ def index():
     comps = _comparacoes(conn, urls) if tem_comp else {}
     areas = _areas_oficiais(conn, urls) if tem_areas else {}
     venais = _venais(conn, urls) if tem_venais else {}
+    # quantas cópias do mesmo imóvel existem, e a faixa de preço delas
+    faixas = _copias_dos_grupos(conn, anuncios) if tem_dup else {}
     # uma consulta só para as fotos de todos os cards da página
     fotos_lote = _fotos_locais_lote(conn, urls)
     conn.close()
@@ -563,6 +618,18 @@ def index():
         d["area_grau"] = _grau_area(
             (areas.get(a["url"]) or {}).get("dif_pct"))
         d["venal"] = venais.get(a["url"])
+        # "n_copias" é quantas ofertas do mesmo imóvel existem (1 = única).
+        # O aviso no card só aparece quando há mais de uma.
+        grupo = a["dup_grupo"]
+        if grupo is not None and grupo in faixas:
+            n_cop, menor, maior = faixas[grupo]
+            d["n_copias"] = n_cop
+            d["preco_min_copias"] = menor
+            d["preco_max_copias"] = maior
+        else:
+            d["n_copias"] = 1
+            d["preco_min_copias"] = None
+            d["preco_max_copias"] = None
         fotos = fotos_lote.get(a["url"], [])
         d["fotos_card"] = fotos[:8]
         d["n_fotos"] = len(fotos)
@@ -608,11 +675,13 @@ def index():
             "piso_quintal": pisos_sel,
             "so_arvores": so_arvores,
             "so_abaixo": so_abaixo,
+            "todas": todas,
             "ordem": ordem,
         },
         chips=chips,
         filtros_ativos=ativos,
         tem_comp=tem_comp,
+        tem_dup=tem_dup,
         total=total_filtrado,
     )
 

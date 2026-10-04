@@ -332,13 +332,21 @@ def main() -> None:
             else:
                 limpos.append(g)
 
-        # escolhe o "principal" de cada grupo: o que tem MAIS FOTOS
-        # (é o mais completo) e, em empate, o de MENOR PREÇO.
+        # escolhe o "principal" de cada grupo: o de MENOR PREÇO.
+        #
+        # A mesma casa aparece em portais diferentes, às vezes com preços
+        # diferentes. O que serve de referência para o usuário é a oferta mais
+        # barata — é ela que ele quer ver na lista, e é ela que faz sentido
+        # comparar com o preço de mercado. Em empate de preço (ou quando o
+        # preço é desconhecido), desempata por mais fotos, que é o anúncio
+        # mais completo.
         pacote = []
         for g in limpos:
             precos = [info[u]["preco"] for u in g if info.get(u, {}).get("preco")]
             def chave(u: str):
-                return (-n_fotos.get(u, 0), info.get(u, {}).get("preco") or 1e12)
+                preco = info.get(u, {}).get("preco")
+                # preço desconhecido vai para o fim, nunca lidera o grupo
+                return (preco is None, preco or 0, -n_fotos.get(u, 0))
             principal = min(g, key=chave)
             pacote.append({
                 "membros": g,

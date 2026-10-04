@@ -89,6 +89,10 @@
   <path d="M12 4.5v15"/><path d="m5.5 13 6.5 6.5L18.5 13"/>
 {%- elif nome == 'seta-cima' -%}
   <path d="M12 19.5v-15"/><path d="m5.5 11 6.5-6.5L18.5 11"/>
+{%- elif nome == 'copias' -%}
+  {# dois retangulos sobrepostos = a mesma coisa repetida #}
+  <rect x="3.5" y="7.5" width="12" height="12" rx="2"/>
+  <path d="M7.5 4.5h10a2 2 0 0 1 2 2v10"/>
 {%- elif nome == 'grafico' -%}
   <path d="M3.5 3.5v17h17"/>
   <path d="m6.5 15.5 3.5-4 3 2.5L20 7.5"/>

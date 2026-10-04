@@ -177,7 +177,18 @@ def ajustar_ruas(conn: sqlite3.Connection, verbose: bool = True) -> int:
     ):
         c = _cep_norm(r["c"])
         if len(c) >= 5:
-            por_rua.setdefault(r["k"], {})[c[:5]] = r["n"]
+            # SOMA, não sobrescreve. O SQL agrupa por CEP de 8 dígitos, então
+            # uma mesma rua aparece várias vezes com o MESMO prefixo de 5
+            # (ex.: 05133001 e 05133004 → ambos '05133'). Com `= r["n"]` ficava
+            # só o último contador.
+            #
+            # Medido antes de corrigir: 1.419 ruas (4,0%) com total errado,
+            # 1.417 delas SUBcontadas — e 254 ruas válidas eram descartadas
+            # por caírem abaixo de MIN_CASOS_POR_RUA sem motivo. O CEP
+            # dominante trocado é raro (2 casos), então o defeito era
+            # conservador: perdia rua boa, não criava rua ruim.
+            acumulado = por_rua.setdefault(r["k"], {})
+            acumulado[c[:5]] = acumulado.get(c[:5], 0) + r["n"]
 
     conn.execute("DELETE FROM cep_da_rua")
     gravadas = 0
