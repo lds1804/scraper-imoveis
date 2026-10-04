@@ -88,32 +88,105 @@ def main() -> int:
             f"{nome}: {n} cards na 1a pagina",
         )
 
-    print("\n=== 2b) Filtro por bairro ===")
-    # O select lista os bairros existentes e o filtro precisa REALMENTE
-    # reduzir: comparar a contagem exibida, não o número de cards (todos
-    # mostram 60 na primeira página, o que não distingue nada).
+    print("\n=== 2b) Filtro por bairro (multipla escolha) ===")
+    # O filtro de bairro deixou de ser um <select> e virou um painel de
+    # caixas de marcação, para aceitar VÁRIOS bairros de uma vez. O teste
+    # antigo procurava um <select name="bairro">, que não existe mais.
+    #
+    # O filtro precisa REALMENTE reduzir: comparamos a contagem exibida, não
+    # o número de cards (todos mostram 60 na primeira página, o que não
+    # distingue nada).
     r0 = _get(cliente)
     m0 = re.search(r"<b>([\d.]+)</b> im", r0.data.decode("utf-8", "replace"))
     total_geral = int(m0.group(1).replace(".", "")) if m0 else 0
     verificar(total_geral > 0, f"total sem filtro = {total_geral}")
 
     html0 = r0.data.decode("utf-8", "replace")
-    sel = re.search(r'<select name="bairro">(.*?)</select>', html0, re.S)
-    opcoes = re.findall(r'<option value="([^"]+)"', sel.group(1)) if sel else []
-    verificar(len(opcoes) >= 5, f"o select lista {len(opcoes)} bairros")
+    # as opções são caixas de marcação com o nome do bairro no value
+    opcoes = re.findall(r'<input type="checkbox" name="bairro" value="([^"]+)"',
+                        html0)
+    verificar(len(opcoes) >= 5, f"o painel lista {len(opcoes)} bairros")
+
+    # o botão de resumo precisa dizer "Todos" quando nada está marcado
+    verificar('class="multi-valor"' in html0, "o campo de bairro tem resumo no botão")
+
+    def _n_anuncios(html):
+        m = re.search(r"<b>([\d.]+)</b> im", html)
+        return int(m.group(1).replace(".", "")) if m else -1
+
+    def _achata(html):
+        """Colapsa espaços/quebras de linha para comparar o HTML renderizado.
+
+        O template quebra a linha entre o `value` e o `checked` da caixa de
+        marcação, então procurar a string crua não acha nada.
+        """
+        return re.sub(r"\s+", " ", html)
 
     for b in opcoes[:3]:
         rb = _get(cliente, "?bairro=" + urllib.parse.quote(b))
-        mb = re.search(r"<b>([\d.]+)</b> im", rb.data.decode("utf-8", "replace"))
-        tot = int(mb.group(1).replace(".", "")) if mb else -1
+        html_b = _achata(rb.data.decode("utf-8", "replace"))
+        tot = _n_anuncios(html_b)
         verificar(
             0 < tot < total_geral,
             f"bairro {b!r}: {tot} anúncios (< {total_geral} do total)",
         )
-        # o bairro escolhido precisa ficar marcado no select
+        # o bairro escolhido precisa ficar marcado no painel
         verificar(
-            f'<option value="{b}" selected' in rb.data.decode("utf-8", "replace"),
-            f"bairro {b!r} fica selecionado no select",
+            f'name="bairro" value="{b}" checked' in html_b,
+            f"bairro {b!r} fica marcado no painel",
+        )
+
+    # MÚLTIPLA escolha: a soma dos dois tem de ser exatamente a união
+    if len(opcoes) >= 2:
+        a, b2 = opcoes[0], opcoes[1]
+        q = ("?bairro=" + urllib.parse.quote(a) +
+             "&bairro=" + urllib.parse.quote(b2))
+        rj = _get(cliente, q)
+        juntos = _n_anuncios(rj.data.decode("utf-8", "replace"))
+        so_a = _n_anuncios(_get(cliente, "?bairro=" + urllib.parse.quote(a))
+                      .data.decode("utf-8", "replace"))
+        so_b = _n_anuncios(_get(cliente, "?bairro=" + urllib.parse.quote(b2))
+                      .data.decode("utf-8", "replace"))
+        # dois bairros são conjuntos disjuntos, então a soma tem de fechar
+        verificar(
+            juntos == so_a + so_b,
+            f"dois bairros somam certo: {so_a} + {so_b} = {juntos}",
+        )
+        verificar(
+            rj.status_code == 200,
+            "dois bairros de uma vez devolvem 200",
+        )
+        # e ambos os valores precisam ir no formulário, não só o último
+        html_j = _achata(rj.data.decode("utf-8", "replace"))
+        verificar(
+            html_j.count('name="bairro" value="%s" checked' % a) == 1
+            and html_j.count('name="bairro" value="%s" checked' % b2) == 1,
+            "os dois bairros ficam marcados ao mesmo tempo",
+        )
+
+    print("\n=== 2c) Filtro de piso do quintal (multipla escolha) ===")
+    # Mesma mudança: aceita vários pisos de uma vez. A união de dois pisos
+    # distintos também precisa fechar exatamente.
+    pisos = re.findall(r'<input type="checkbox" name="piso_quintal" value="([^"]+)"',
+                       html0)
+    verificar(len(pisos) >= 3, f"o painel lista {len(pisos)} tipos de piso")
+
+    if len(pisos) >= 2:
+        p1, p2 = pisos[0], pisos[1]
+        n1 = _n_anuncios(_get(cliente, "?piso_quintal=" + p1)
+                    .data.decode("utf-8", "replace"))
+        n2 = _n_anuncios(_get(cliente, "?piso_quintal=" + p2)
+                    .data.decode("utf-8", "replace"))
+        nj = _n_anuncios(_get(cliente, f"?piso_quintal={p1}&piso_quintal={p2}")
+                    .data.decode("utf-8", "replace"))
+        # aqui PODE haver sobreposição: uma foto de quintal pode ser
+        # classificada em mais de um piso, então a união é >= o maior e
+        # <= a soma. Não exigimos igualdade, mas exigimos que a união não
+        # seja MENOR que qualquer um dos dois (o que indicaria que só o
+        # último valor foi aplicado).
+        verificar(
+            max(n1, n2) <= nj <= n1 + n2,
+            f"dois pisos combinam certo: max({n1},{n2}) <= {nj} <= {n1 + n2}",
         )
 
     print("\n=== 3) Regressao: 'terra batida' nao pode vir vazio ===")

@@ -39,7 +39,13 @@ def _injetar_icones():
 
     # get_template_attribute devolve o próprio macro já resolvido
     icone = get_template_attribute("_icones.html", "icone")
-    return {"ic": SimpleNamespace(icone=icone)}
+    return {
+        "ic": SimpleNamespace(icone=icone),
+        # rótulos e opções do piso do quintal, para o seletor múltiplo os
+        # montar sem repetir a lista no template (fonte única de verdade)
+        "PISO_ROTULO": PISO_ROTULO,
+        "PISO_OPCOES": PISO_OPCOES,
+    }
 
 
 @app.template_filter("moeda")
@@ -106,21 +112,43 @@ PISO_ROTULO = {
     "incerto": "não visível",
 }
 
+# Ordem em que as opções aparecem no seletor múltiplo. Só entram as que fazem
+# sentido FILTRAR — "incerto" fica de fora porque "quintal não visível" não é
+# um piso, é ausência de dado, e quem marca isso espera ver quintal.
+PISO_OPCOES = [
+    ("terra", "com terra batida"),
+    ("grama", "gramado"),
+    ("cimento", "cimentado"),
+    ("misto", "misto"),
+]
+
 
 def _chips_ativos(filtros: dict) -> list[dict]:
     """Monta os "chips" dos filtros ativos.
 
     Cada chip leva a uma URL SEM aquele filtro (ou seja, clicar nele remove
     só aquele critério, mantendo os demais).
+
+    Para os filtros de MÚLTIPLA escolha (`bairro` e `piso_quintal`), o chip
+    remove apenas UM valor e os outros continuam aplicados — clicar em
+    "Lapa" quando "Lapa + Pirituba" estavam marcados deve deixar só
+    "Pirituba", não limpar os dois.
     """
     ORDEM_PADRAO = "score"
 
-    def base(sem: str) -> str:
-        """URL com todos os filtros, exceto `sem`."""
-        q: dict[str, str] = {}
+    def base(sem: str, valor: str | None = None) -> str:
+        """URL com todos os filtros, exceto `sem` (ou só o `valor` dele)."""
+        q: dict = {}
 
-        if filtros.get("bairro") and sem != "bairro":
-            q["bairro"] = filtros["bairro"]
+        def multi(chave: str, valores: list[str]) -> None:
+            restantes = [v for v in valores if v != valor] if (sem == chave and valor) \
+                else ([] if sem == chave else list(valores))
+            if restantes:
+                q[chave] = restantes
+
+        multi("bairro", filtros.get("bairro") or [])
+        multi("piso_quintal", filtros.get("piso_quintal") or [])
+
         if filtros.get("preco_max") and sem != "preco_max":
             q["preco_max"] = filtros["preco_max"]
         if filtros.get("terreno_min") and sem != "terreno_min":
@@ -133,8 +161,6 @@ def _chips_ativos(filtros: dict) -> list[dict]:
             q["so_financiamento"] = "1"
         if filtros.get("sem_financiamento") and sem != "sem_financiamento":
             q["sem_financiamento"] = "1"
-        if filtros.get("piso_quintal") and sem != "piso_quintal":
-            q["piso_quintal"] = filtros["piso_quintal"]
         if filtros.get("so_arvores") and sem != "so_arvores":
             q["so_arvores"] = "1"
         if filtros.get("so_abaixo") and sem != "so_abaixo":
@@ -146,11 +172,10 @@ def _chips_ativos(filtros: dict) -> list[dict]:
 
     chips: list[dict] = []
 
-    if filtros.get("bairro"):
-        chips.append({
-            "rotulo": str(filtros["bairro"]).replace("-", " ").title(),
-            "url": base("bairro"),
-        })
+    # um chip por bairro escolhido: clicar remove só ele
+    for b in filtros.get("bairro") or []:
+        chips.append({"rotulo": str(b), "url": base("bairro", b)})
+
     if filtros.get("preco_max"):
         valor = float(filtros["preco_max"])
         chips.append({
@@ -174,11 +199,14 @@ def _chips_ativos(filtros: dict) -> list[dict]:
         chips.append({"rotulo": "aceita financiamento", "url": base("so_financiamento")})
     if filtros.get("sem_financiamento"):
         chips.append({"rotulo": "sem financiamento", "url": base("sem_financiamento")})
-    if filtros.get("piso_quintal"):
+
+    # um chip por piso escolhido
+    for p in filtros.get("piso_quintal") or []:
         chips.append({
-            "rotulo": f"quintal: {PISO_ROTULO.get(filtros['piso_quintal'], filtros['piso_quintal'])}",
-            "url": base("piso_quintal"),
+            "rotulo": f"quintal: {PISO_ROTULO.get(p, p)}",
+            "url": base("piso_quintal", p),
         })
+
     if filtros.get("so_arvores"):
         chips.append({"rotulo": "com árvores (foto)", "url": base("so_arvores")})
     if filtros.get("so_abaixo"):
@@ -388,7 +416,12 @@ def _slug_fotos(anuncio_url: str) -> str:
 def index():
     conn = _conn()
 
-    bairro = request.args.get("bairro", "").strip()
+    # MÚLTIPLA escolha: o formulário manda o mesmo nome várias vezes
+    # (?bairro=Lapa&bairro=Pirituba) e `getlist` devolve todos. O código
+    # antigo usava `get` e ficava só com o PRIMEIRO — o usuário marcaria
+    # três bairros e a busca silenciosamente ignoraria dois.
+    bairros_sel = [b.strip() for b in request.args.getlist("bairro") if b.strip()]
+    pisos_sel = [p.strip() for p in request.args.getlist("piso_quintal") if p.strip()]
     preco_max = request.args.get("preco_max", "").strip()
     terreno_min = request.args.get("terreno_min", "").strip()
     quartos_min = request.args.get("quartos_min", "").strip()
@@ -396,7 +429,6 @@ def index():
     so_financiamento = request.args.get("so_financiamento") == "1"
     sem_financiamento = request.args.get("sem_financiamento") == "1"
     # filtros que dependem da análise visual das fotos (IA)
-    piso_quintal = request.args.get("piso_quintal", "").strip()
     so_arvores = request.args.get("so_arvores") == "1"
     # comparação com o preço praticado (ITBI)
     so_abaixo = request.args.get("so_abaixo") == "1"
@@ -421,11 +453,13 @@ def index():
         sql = "SELECT a.* FROM anuncios a WHERE 1=1"
     params: list = []
 
-    if bairro:
+    if bairros_sel:
         # a coluna guarda o NOME real ("Vila Mangalot"); aceita também o slug
-        # na URL ("vila-mangalot") convertendo antes de comparar
-        sql += " AND LOWER(a.bairro) = LOWER(?)"
-        params.append(_bairro(bairro))
+        # na URL ("vila-mangalot") convertendo antes de comparar.
+        # Uso `IN` porque agora são vários bairros de uma vez.
+        nomes = [_bairro(b).lower() for b in bairros_sel]
+        sql += f" AND LOWER(a.bairro) IN ({','.join('?' * len(nomes))})"
+        params.extend(nomes)
     if preco_max:
         sql += " AND a.preco IS NOT NULL AND a.preco <= ?"
         params.append(float(preco_max))
@@ -441,16 +475,23 @@ def index():
         sql += " AND a.aceita_financiamento = 1"
     if sem_financiamento:
         sql += " AND (a.aceita_financiamento IS NULL OR a.aceita_financiamento = 0)"
-    if piso_quintal:
-        # "terra" é um caso especial: quase nenhum quintal é terra PURA
-        # (o normal é terra + um canto cimentado, que o modelo classifica
-        # como "misto"). Perguntar pelo piso predominante devolveria zero.
-        # Aqui a pergunta é "tem terra?", que é o que o usuário quer saber.
-        if piso_quintal == "terra":
-            sql += " AND a.foto_quintal_terra = 1"
-        else:
-            sql += " AND a.foto_piso_quintal = ?"
-            params.append(piso_quintal)
+    if pisos_sel:
+        # OR entre os pisos escolhidos: marcar "terra" e "grama" significa
+        # "tem terra OU é gramado", que é o que a pessoa espera ao marcar os
+        # dois. Um AND entre eles devolveria sempre zero.
+        #
+        # "terra" é um caso especial: quase nenhum quintal é terra PURA (o
+        # normal é terra + um canto cimentado, que o modelo classifica como
+        # "misto"). Perguntar pelo piso predominante devolveria zero — a
+        # pergunta aqui é "tem terra?".
+        partes = []
+        for p in pisos_sel:
+            if p == "terra":
+                partes.append("a.foto_quintal_terra = 1")
+            else:
+                partes.append("a.foto_piso_quintal = ?")
+                params.append(p)
+        sql += " AND (" + " OR ".join(partes) + ")"
     if so_arvores:
         sql += " AND a.foto_arvores = 1"
 
@@ -531,14 +572,14 @@ def index():
 
     chips = _chips_ativos(
         {
-            "bairro": bairro,
+            "bairro": bairros_sel,
             "preco_max": preco_max,
             "terreno_min": terreno_min,
             "quartos_min": quartos_min,
             "so_quintal": so_quintal,
             "so_financiamento": so_financiamento,
             "sem_financiamento": sem_financiamento,
-            "piso_quintal": piso_quintal,
+            "piso_quintal": pisos_sel,
             "so_arvores": so_arvores,
             "so_abaixo": so_abaixo,
             "ordem": ordem,
@@ -557,14 +598,14 @@ def index():
         total_filtrado=total_filtrado,
         por_pagina=POR_PAGINA,
         filtros={
-            "bairro": bairro,
+            "bairro": bairros_sel,
             "preco_max": preco_max,
             "terreno_min": terreno_min,
             "quartos_min": quartos_min,
             "so_quintal": so_quintal,
             "so_financiamento": so_financiamento,
             "sem_financiamento": sem_financiamento,
-            "piso_quintal": piso_quintal,
+            "piso_quintal": pisos_sel,
             "so_arvores": so_arvores,
             "so_abaixo": so_abaixo,
             "ordem": ordem,

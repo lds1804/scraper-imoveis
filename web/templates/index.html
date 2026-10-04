@@ -23,14 +23,38 @@
 
       {# Linha 1 — campos de valor: texto, número, seleção e as ações #}
       <div class="filtros-linha campos">
-        <label>Bairro
-          <select name="bairro">
-            <option value="">Todos</option>
+        {# MÚLTIPLA escolha em bairro e piso do quintal.
+           Um `<select multiple>` nativo é ruim de usar (exige Ctrl+clique e some
+           com a lista ao escolher), então cada campo é um botão que abre um
+           painel de checkboxes. Os marcados aparecem resumidos no próprio botão,
+           então dá para ler o filtro sem abrir o painel. #}
+        <div class="multi" data-multi>
+          <button type="button" class="multi-botao" aria-expanded="false">
+            <span class="multi-rotulo">Bairro</span>
+            <span class="multi-valor">
+              {% if filtros.bairro | length == 0 %}
+                Todos
+              {% elif filtros.bairro | length == 1 %}
+                {{ filtros.bairro[0] }}
+              {% else %}
+                {{ filtros.bairro | length }} bairros
+              {% endif %}
+            </span>
+          </button>
+          <div class="multi-painel" hidden>
             {% for b in bairros %}
-              <option value="{{ b }}" {% if filtros.bairro == b %}selected{% endif %}>{{ b | bairro }}</option>
+              <label class="multi-opcao">
+                <input type="checkbox" name="bairro" value="{{ b }}"
+                       {% if b in filtros.bairro %}checked{% endif %}>
+                <span>{{ b | bairro }}</span>
+              </label>
             {% endfor %}
-          </select>
-        </label>
+            <div class="multi-acoes">
+              <button type="button" class="multi-limpar">Limpar</button>
+              <button type="button" class="multi-fechar">Fechar</button>
+            </div>
+          </div>
+        </div>
 
         <label>Preço máx.
           <input type="number" name="preco_max" placeholder="R$ 1.000.000"
@@ -47,15 +71,33 @@
                  value="{{ filtros.quartos_min }}" min="1" max="10">
         </label>
 
-        <label>Piso do quintal
-          <select name="piso_quintal">
-            <option value="">Qualquer</option>
-            <option value="terra"  {% if filtros.piso_quintal=='terra'  %}selected{% endif %}>Com terra batida</option>
-            <option value="grama"  {% if filtros.piso_quintal=='grama'  %}selected{% endif %}>Gramado</option>
-            <option value="cimento"{% if filtros.piso_quintal=='cimento'%}selected{% endif %}>Cimentado</option>
-            <option value="misto"  {% if filtros.piso_quintal=='misto'  %}selected{% endif %}>Misto</option>
-          </select>
-        </label>
+        <div class="multi" data-multi>
+          <button type="button" class="multi-botao" aria-expanded="false">
+            <span class="multi-rotulo">Quintal</span>
+            <span class="multi-valor">
+              {% if filtros.piso_quintal | length == 0 %}
+                Qualquer
+              {% elif filtros.piso_quintal | length == 1 %}
+                {{ PISO_ROTULO.get(filtros.piso_quintal[0], filtros.piso_quintal[0]) }}
+              {% else %}
+                {{ filtros.piso_quintal | length }} tipos
+              {% endif %}
+            </span>
+          </button>
+          <div class="multi-painel" hidden>
+            {% for valor, rotulo in PISO_OPCOES %}
+              <label class="multi-opcao">
+                <input type="checkbox" name="piso_quintal" value="{{ valor }}"
+                       {% if valor in filtros.piso_quintal %}checked{% endif %}>
+                <span>{{ rotulo }}</span>
+              </label>
+            {% endfor %}
+            <div class="multi-acoes">
+              <button type="button" class="multi-limpar">Limpar</button>
+              <button type="button" class="multi-fechar">Fechar</button>
+            </div>
+          </div>
+        </div>
 
         <label>Ordenar
           <select name="ordem">
@@ -475,6 +517,91 @@
         if (Math.abs(delta) > 40) mostrar(delta < 0 ? idx + 1 : idx - 1);
         xInicial = null;
       });
+    });
+
+    // ---------------------------------------------------------------------
+    // Seletores múltiplos (bairro, quintal)
+    //
+    // Cada um é um botão que abre um painel de checkboxes. O resumo no botão
+    // é atualizado AQUI, ao marcar, e não só depois de enviar o formulário —
+    // assim a pessoa vê o efeito da escolha na hora, sem clicar em "Filtrar".
+    //
+    // Os checkboxes continuam dentro do <form>, então o envio (Enter ou o
+    // botão Filtrar) leva todos os valores marcados como `?bairro=A&bairro=B`.
+    // ---------------------------------------------------------------------
+    document.querySelectorAll("[data-multi]").forEach(function (caixa) {
+      const botao = caixa.querySelector(".multi-botao");
+      const painel = caixa.querySelector(".multi-painel");
+      const valor = caixa.querySelector(".multi-valor");
+      const rotulo = caixa.querySelector(".multi-rotulo");
+      const vazio = rotulo.textContent.trim() === "Bairro" ? "Todos" : "Qualquer";
+      const caixas = painel.querySelectorAll('input[type="checkbox"]');
+
+      function resumo() {
+        const marcados = Array.prototype.filter.call(caixas, function (c) {
+          return c.checked;
+        });
+        if (marcados.length === 0) {
+          valor.textContent = vazio;
+        } else if (marcados.length === 1) {
+          // textContent (e não innerText): innerText devolve o texto JA
+          // transformado pelo CSS. O rótulo do filtro é uppercase, então o
+          // resumo aparecia "GRAMADO" em vez de "gramado".
+          const texto = marcados[0].parentElement.querySelector("span");
+          valor.textContent = (texto ? texto.textContent : "").trim();
+        } else {
+          valor.textContent = marcados.length +
+            (rotulo.textContent.trim() === "Bairro" ? " bairros" : " tipos");
+        }
+        caixa.classList.toggle("tem-escolha", marcados.length > 0);
+      }
+
+      function abrir(sim) {
+        painel.hidden = !sim;
+        botao.setAttribute("aria-expanded", sim ? "true" : "false");
+        caixa.classList.toggle("aberta", sim);
+        // ABRIR UM FECHA OS OUTROS. O painel é posicionado logo abaixo do
+        // botão, ou seja, exatamente em cima do campo seguinte da mesma
+        // linha — sem isto, abrir "Bairro" cobre o botão de "Quintal" e o
+        // usuário fica sem conseguir clicar nele.
+        if (sim) {
+          document.querySelectorAll("[data-multi]").forEach(function (outra) {
+            if (outra !== caixa) {
+              outra.querySelector(".multi-painel").hidden = true;
+              outra.querySelector(".multi-botao").setAttribute("aria-expanded", "false");
+              outra.classList.remove("aberta");
+            }
+          });
+        }
+      }
+
+      botao.addEventListener("click", function (e) {
+        e.stopPropagation();   // senão o listener de fora fecha na mesma hora
+        abrir(painel.hidden);
+      });
+
+      caixas.forEach(function (c) {
+        c.addEventListener("change", resumo);
+      });
+
+      caixa.querySelector(".multi-limpar").addEventListener("click", function () {
+        caixas.forEach(function (c) { c.checked = false; });
+        resumo();
+      });
+
+      caixa.querySelector(".multi-fechar").addEventListener("click", function () {
+        abrir(false);
+      });
+
+      // clique fora ou Esc fecha (útil para não deixar painel aberto atrapalhando)
+      document.addEventListener("click", function (e) {
+        if (!caixa.contains(e.target)) abrir(false);
+      });
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") abrir(false);
+      });
+
+      resumo();
     });
   </script>
 </body>

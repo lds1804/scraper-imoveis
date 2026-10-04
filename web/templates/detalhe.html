@@ -302,7 +302,10 @@
             Base: <b>{{ c.n_transacoes }} venda{% if c.n_transacoes != 1 %}s{% endif %}</b>
             {% if c.n_numeros %}em {{ c.n_numeros }} endereço{% if c.n_numeros != 1 %}s{% endif %}{% endif %}
             {% if c.n_financiadas %}
-              · {{ c.n_financiadas }} consta{% if c.n_financiadas == 1 %}m{% endif %} como financiada{% if c.n_financiadas != 1 %}s{% endif %}
+              {# "constar" é plural em "constam": o "m" final entra quando o
+                 número NÃO é 1. Antes a condição estava invertida (== 1), e a
+                 página escrevia "4 consta como financiadas". #}
+              · {{ c.n_financiadas }} consta{% if c.n_financiadas != 1 %}m{% endif %} como financiada{% if c.n_financiadas != 1 %}s{% endif %}
               <span title="Financiamento passa por avaliação do banco, então o valor declarado não pode ser reduzido para pagar menos imposto — é o dado mais confiável">(valor avaliado)</span>
             {% endif %}
             · confiança {{ c.confianca }}

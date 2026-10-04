@@ -268,3 +268,138 @@
   border-color: var(--linha); color: var(--texto-2); background: var(--superficie, #fff);
 }
 .pag-retic { color: var(--muted); padding: 0 3px; align-self: center; }
+
+/* ---------------------------------------------------------------------------
+   Seletores MÚLTIPLOS (bairro, quintal)
+   ---------------------------------------------------------------------------
+   Um `<select multiple>` nativo exige Ctrl+clique, não mostra quantos estão
+   marcados e no Windows a lista some ao escolher. Aqui cada campo é um botão
+   com o resumo das escolhas + um painel de checkboxes.
+
+   O botão usa a mesma linguagem visual dos campos da barra de filtros
+   (mesma altura, borda e raio) para não parecer um controle estranho no meio.
+--------------------------------------------------------------------------- */
+.multi { position: relative; }
+
+.multi-botao {
+  display: flex; flex-direction: column; gap: 5px;
+  align-items: flex-start;
+  position: relative;                 /* âncora do ::after (a seta) */
+  padding: 9px 30px 9px 12px;
+  border: 1px solid var(--linha-forte);
+  border-radius: var(--r-sm);
+  background: #fff;
+  font-family: inherit; text-align: left;
+  min-width: 150px; max-width: 210px; cursor: pointer;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.multi-botao:hover { border-color: #bcc6d4; }
+.multi-botao:focus-visible {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--anel-foco);
+}
+
+/* o rótulo imita o dos outros campos (maiúsculo pequeno) para alinhar a linha */
+.multi-rotulo {
+  font-size: .72rem; font-weight: 600; color: var(--texto-2);
+  text-transform: uppercase; letter-spacing: .045em;
+}
+.multi-valor {
+  font-size: .87rem; font-weight: 500; color: var(--texto);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 100%;
+}
+/* quando há escolha ativa, o botão se destaca — igual às pílulas marcadas */
+.multi.tem-escolha > .multi-botao {
+  border-color: var(--accent);
+  background: var(--accent-claro);
+}
+.multi.tem-escolha .multi-valor { color: var(--accent); font-weight: 600; }
+
+/* setinha indicando que abre */
+.multi-botao::after {
+  content: "";
+  position: absolute; right: 11px; top: 50%; margin-top: -6px;
+  width: 13px; height: 13px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23667085' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-size: 13px;
+  transition: transform .15s ease;
+}
+.multi.aberta .multi-botao::after { transform: rotate(180deg); }
+
+/* ---------------------------------------------------------------------------
+   O painel: FLUTUA sobre a página, e não empurra nem cobre o campo seguinte.
+
+   Duas tentativas anteriores falharam, e as duas foram vistas no navegador:
+
+     1. `position: absolute` alinhado à ESQUERDA de tudo — abrir "Bairro"
+        cobria o botão de "Quintal", e o clique nele era interceptado
+        ("intercepts pointer events"). O usuário não conseguia abrir o 2º.
+     2. em FLUXO (sem position) — o painel com 18 bairros empurrava a linha
+        inteira para baixo e o botão de "Quintal" saía da viewport
+        ("element is outside of the viewport").
+
+   O que funciona: flutuante (não desloca nada) e ancorado à ESQUERDA do
+   próprio botão, com largura e altura LIMITADAS. Como os campos da linha
+   estão afastados, os ~260 px de largura não alcançam o botão vizinho, e a
+   lista rola dentro do painel em vez de crescer.
+--------------------------------------------------------------------------- */
+.multi-painel {
+  position: absolute; z-index: 40;
+  top: calc(100% + 6px); left: 0;
+  width: 258px;
+  max-height: 264px; overflow-y: auto;
+  padding: 7px;
+  background: #fff;
+  border: 1px solid var(--linha-forte);
+  border-radius: var(--r);
+  box-shadow: var(--sombra-3);
+}
+
+/* ---------------------------------------------------------------------------
+   As opções do painel são <label> DENTRO de <form class="filtros">, e a regra
+   `.filtros label` (especificidade 0,1,1) vence os seletores de classe
+   (0,1,0) usados abaixo. Sem repetir o `text-transform: none` com a MESMA
+   especificidade aqui, a opção herdava o `uppercase` e o `font-size: .72rem`
+   do rótulo do filtro: o resumo exibia "GRAMADO" em vez de "gramado", e o
+   `flex-direction: column` empilhava a caixa de marcação ACIMA do texto.
+   Por isso o seletor é `.filtros .multi-opcao` (0,2,0) e não `.multi-opcao`.
+--------------------------------------------------------------------------- */
+.filtros .multi-opcao,
+.filtros .multi-opcao * {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: .84rem;
+  font-weight: 400;
+  color: var(--texto);
+}
+.filtros .multi-opcao {
+  display: flex;
+  flex-direction: row;          /* vence o column de `.filtros label` */
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  cursor: pointer; user-select: none;
+}
+.filtros .multi-opcao:hover { background: var(--accent-claro); }
+.filtros .multi-opcao input {
+  width: 16px; height: 16px; flex: 0 0 16px;
+  min-width: 0; padding: 0; margin: 0;
+  accent-color: var(--accent); cursor: pointer;
+}
+.filtros .multi-opcao:has(input:checked) {
+  font-weight: 600; color: var(--accent);
+}
+
+.multi-acoes {
+  display: flex; justify-content: space-between; gap: 8px;
+  margin-top: 6px; padding: 7px 4px 2px;
+  border-top: 1px solid var(--linha);
+}
+.multi-acoes button {
+  border: 0; background: none; padding: 5px 8px;
+  font-family: inherit; font-size: .78rem; font-weight: 600;
+  color: var(--muted); cursor: pointer; border-radius: var(--r-sm);
+}
+.multi-acoes button:hover { background: var(--accent-claro); color: var(--accent); }
