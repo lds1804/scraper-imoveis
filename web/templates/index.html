@@ -353,9 +353,11 @@
               {# Valor venal ESTIMADO: a prefeitura não publica o venal por
                  imóvel, então ele é projetado da razão venal/mercado da
                  região (medida em 112 mil pares de transações). É referência
-                 TRIBUTÁRIA, não de mercado. #}
+                 TRIBUTÁRIA, não de mercado.
+                 O texto do tooltip usa o GRAU da região em linguagem clara, e
+                 não a chave interna ('cep5:02919'), que não diz nada a quem lê. #}
               <div class="venal"
-                   title="Valor venal projetado a partir da razão venal/mercado da região ({{ a.venal.regiao }}, {{ a.venal.n_pares }} transações). É referência tributária (IPTU), não preço de mercado.">
+                   title="Valor venal projetado a partir da razão venal/mercado {% if a.venal.regiao == 'cidade' %}da cidade{% elif a.venal.regiao.startswith('cep5') %}do CEP{% elif a.venal.regiao.startswith('cep4') %}da faixa de CEP{% elif a.venal.regiao.startswith('cep3') %}da região do CEP{% else %}da região{% endif %}, medida em {{ a.venal.n_pares | numero }} transações. É referência tributária (IPTU), não preço de mercado.">
                 {{ ic.icone('banco', 'ico ico-sm') }}
                 valor venal ~{{ a.venal.valor_venal | moeda }}
                 <span>({{ (a.venal.razao * 100) | round | int }}% do pedido)</span>

@@ -223,6 +223,24 @@ def termo_de_busca(rua: str) -> str:
     return max(especificos or palavras, key=len)
 
 
+def cep_do_bairro(bairro: str) -> str:
+    """Devolve o bairro normalizado como chave de região.
+
+    Existe para servir de nível mais fino de agrupamento quando não há CEP
+    NEM rua, que é o caso de 1.980 anúncios (todos da OLX, mais alguns do
+    Imovelweb): esses portais não publicam o CEP e o anúncio não traz a rua.
+    O bairro, porém, existe em 100% dos anúncios.
+
+    O nome é só normalizado (maiúsculo, sem acento, sem pontuação) — quem
+    casa as duas pontas é a MESMA função, então não importa a grafia.
+    """
+    if not bairro:
+        return ""
+    t = sem_acento(str(bairro)).upper()
+    t = re.sub(r"[^A-Z0-9 ]", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
 def numero_do_logradouro(rua: str) -> str:
     """Extrai o número do imóvel do campo `rua` do anúncio.
 

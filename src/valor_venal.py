@@ -56,6 +56,8 @@ prefeitura avalia — mas não substitui a comparação com preços praticados.
 
 Uso:
     python valor_venal.py --ajustar        # agrega as razões por região
+    python valor_venal.py --ajustar-ruas   # monta o mapa rua -> CEP
+    python valor_venal.py --calcular       # grava o venal de cada anúncio
     python valor_venal.py --testar 05133004 670000
 """
 
@@ -92,6 +94,24 @@ MIN_PARES_GROSSO = 15
 
 NIVEIS_CEP = (5, 4, 3)
 
+# ---------------------------------------------------------------------------
+# Recuperar o CEP pela RUA
+# ---------------------------------------------------------------------------
+# Só o ZAP publica o CEP no anúncio (os 1.895 dele têm). OLX, QuintoAndar e
+# Imovelweb NÃO publicam: 100% dos anúncios desses três vêm sem CEP. Sem CEP não
+# há região fina e sobrava o nível "cidade" — que é grosso e foi o que fez 60%
+# dos anúncios caírem no mesmo balde.
+#
+# Só que o anúncio quase sempre traz a RUA, e o ITBI tem 537 mil transações com
+# rua E CEP. Dá para tirar o CEP das próprias transações. Medido em amostra
+# separada: quando o CEP é recuperado pela rua, ele está **certo em 99%** dos
+# casos, e o erro da estimativa cai (mediano 26,9% -> 25,2% entre os afetados).
+#
+# Só entram ruas com evidência suficiente. Avenidas longas cruzam vários CEPs e
+# ficam de fora — para elas o CEP dominante não representa nada.
+MIN_CASOS_POR_RUA = 3        # transações na mesma rua
+PROPORCAO_CEP_DA_RUA = 0.60  # quanto o CEP dominante precisa representar
+
 
 def _cep_norm(valor) -> str:
     """CEP com 8 dígitos.
@@ -118,9 +138,67 @@ def criar_tabela(conn: sqlite3.Connection) -> None:
             p75         REAL,
             ajustado_em TEXT
         );
+
+        -- CEP deduzido da rua, para os portais que não publicam o CEP.
+        -- Ver o comentário de MIN_CASOS_POR_RUA.
+        CREATE TABLE IF NOT EXISTS cep_da_rua (
+            rua_chave   TEXT PRIMARY KEY,
+            cep5        TEXT,
+            n           INTEGER,           -- transações que sustentam o mapa
+            ajustado_em TEXT
+        );
         """
     )
+    # coluna que diz de onde veio o CEP (do portal ou deduzido da rua)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(valores_venais)")}
+    if cols and "origem_cep" not in cols:
+        conn.execute("ALTER TABLE valores_venais ADD COLUMN origem_cep TEXT")
     conn.commit()
+
+
+def ajustar_ruas(conn: sqlite3.Connection, verbose: bool = True) -> int:
+    """Monta o mapa rua -> CEP a partir das transações do ITBI.
+
+    Sem isso, os anúncios sem CEP (60% da base) caem no nível "cidade".
+    """
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS cep_da_rua (
+               rua_chave   TEXT PRIMARY KEY,
+               cep5        TEXT,
+               n           INTEGER,
+               ajustado_em TEXT)"""
+    )
+    por_rua: dict[str, dict[str, int]] = {}
+    for r in conn.execute(
+        """SELECT rua_chave AS k, cep_norm AS c, COUNT(*) AS n
+           FROM itbi
+           WHERE COALESCE(rua_chave,'') <> '' AND COALESCE(cep_norm,'') <> ''
+           GROUP BY 1, 2"""
+    ):
+        c = _cep_norm(r["c"])
+        if len(c) >= 5:
+            por_rua.setdefault(r["k"], {})[c[:5]] = r["n"]
+
+    conn.execute("DELETE FROM cep_da_rua")
+    gravadas = 0
+    for chave, ceps in por_rua.items():
+        cep5, n = max(ceps.items(), key=lambda x: x[1])
+        total = sum(ceps.values())
+        if n < MIN_CASOS_POR_RUA or n / total < PROPORCAO_CEP_DA_RUA:
+            continue
+        conn.execute(
+            """INSERT OR REPLACE INTO cep_da_rua
+               (rua_chave, cep5, n, ajustado_em)
+               VALUES (?,?,?,datetime('now'))""",
+            (chave, cep5, total),
+        )
+        gravadas += 1
+    conn.commit()
+
+    if verbose:
+        print(f"CEP por rua: {gravadas:,d} ruas "
+              f"(de {len(por_rua):,d} com transação no ITBI)")
+    return gravadas
 
 
 def ajustar(conn: sqlite3.Connection, verbose: bool = True) -> int:
@@ -191,6 +269,43 @@ def ajustar(conn: sqlite3.Connection, verbose: bool = True) -> int:
     return gravadas
 
 
+def cep_efetivo(conn: sqlite3.Connection, cep: str, rua_chave: str) -> tuple[str, str]:
+    """CEP do anúncio e de onde ele veio.
+
+    Devolve `(cep_normalizado, origem)`, com origem em:
+
+        'anuncio'  o próprio anúncio publica o CEP (só o ZAP publica)
+        'rua'      deduzido da rua, pelo mapa tirado do ITBI
+        ''         não foi possível determinar
+
+    Só aceita a dedução quando ela é confiável: a rua precisa ter
+    `MIN_CASOS_POR_RUA` transações e o mesmo CEP nelas. É o que faz a
+    recuperação acertar ~99% das vezes.
+    """
+    d = _cep_norm(cep)
+    if d:
+        return d, "anuncio"
+    if rua_chave and _tem_tabela(conn, "cep_da_rua"):
+        r = conn.execute(
+            "SELECT cep5, n FROM cep_da_rua WHERE rua_chave = ?", (rua_chave,)
+        ).fetchone()
+        if r and r[0] and r[1] >= MIN_CASOS_POR_RUA:
+            # CUIDADO: `_cep_norm` REJEITA 5 dígitos de propósito (no ITBI isso
+            # é registro truncado). A chave aqui é um PREFIXO de CEP, não um CEP.
+            # Completar até 8 dígitos preserva os três níveis da cascata —
+            # `cep5:` usa os 5 reais, `cep4:` e `cep3:` usam 4 e 3, e o "0" no
+            # fim nunca chega a ser consultado. Sem isto o prefixo virava
+            # string vazia e tudo caía de novo no nível "cidade".
+            return r[0].ljust(8, "0"), "rua"
+    return "", ""
+
+
+def _tem_tabela(conn: sqlite3.Connection, nome: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (nome,)
+    ).fetchone() is not None
+
+
 def razao_da_regiao(conn: sqlite3.Connection, cep: str) -> tuple[float, str, int]:
     """Razão venal/mercado da região, com cascata CEP-5 -> CEP-4 -> CEP-3 -> cidade."""
     d = _cep_norm(cep)
@@ -207,11 +322,17 @@ def razao_da_regiao(conn: sqlite3.Connection, cep: str) -> tuple[float, str, int
     return 0.816, "padrao", 0   # mediana medida da cidade, como último recurso
 
 
-def estimar(conn: sqlite3.Connection, cep: str, preco: float) -> dict | None:
-    """Estima o valor venal a partir do preço pedido e da razão da região."""
+def estimar(conn: sqlite3.Connection, cep: str, preco: float,
+            rua_chave: str = "") -> dict | None:
+    """Estima o valor venal a partir do preço pedido e da razão da região.
+
+    `rua_chave` é opcional e só serve para deduzir o CEP quando o anúncio não
+    publica um (ver `cep_efetivo`). Sem ele o comportamento é o antigo.
+    """
     if not preco:
         return None
-    razao, regiao, n = razao_da_regiao(conn, cep)
+    cep_usado, origem = cep_efetivo(conn, cep, rua_chave)
+    razao, regiao, n = razao_da_regiao(conn, cep_usado)
     if not razao:
         return None
     return {
@@ -220,32 +341,27 @@ def estimar(conn: sqlite3.Connection, cep: str, preco: float) -> dict | None:
         "regiao": regiao,
         "n_pares": n,
         "pct_do_preco": 100 * razao,
+        "origem_cep": origem or "nenhuma",
+        "cep_usado": cep_usado,
     }
 
 
 def calcular(conn: sqlite3.Connection, refazer: bool = False,
              limite: int | None = None, verbose: bool = True) -> int:
     """Grava o valor venal estimado de cada anúncio em `valores_venais`."""
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS valores_venais (
-            anuncio_url    TEXT PRIMARY KEY,
-            valor_venal    REAL,
-            razao          REAL,
-            regiao         TEXT,
-            n_pares        INTEGER,
-            preco          REAL,
-            calculado_em   TEXT
-        );
-        """
-    )
+    criar_tabela(conn)
     if refazer:
         conn.execute("DELETE FROM valores_venais")
         conn.commit()
 
+    tem_rua = _tem_tabela(conn, "cep_da_rua")
+    if not tem_rua and verbose:
+        print("AVISO: tabela cep_da_rua ausente — rodar --ajustar-ruas "
+              "melhora a precisão de quem não publica CEP")
+
     ja = {r[0] for r in conn.execute("SELECT anuncio_url FROM valores_venais")}
     anuncios = [a for a in conn.execute(
-        """SELECT url, cep, preco FROM anuncios
+        """SELECT url, cep, rua_chave, preco FROM anuncios
            WHERE COALESCE(preco,0) > 0""") if a["url"] not in ja]
     if limite:
         anuncios = anuncios[:limite]
@@ -254,25 +370,31 @@ def calcular(conn: sqlite3.Connection, refazer: bool = False,
         print(f"anúncios a calcular: {len(anuncios):,d}")
 
     feitos = sem = 0
+    origens: dict[str, int] = {}
     t0 = time.time()
     for a in anuncios:
-        r = estimar(conn, a["cep"] or "", a["preco"])
+        r = estimar(conn, a["cep"] or "", a["preco"], a["rua_chave"] or "")
         if not r:
             sem += 1
             continue
+        origens[r["origem_cep"]] = origens.get(r["origem_cep"], 0) + 1
         conn.execute(
             """INSERT OR REPLACE INTO valores_venais
                (anuncio_url, valor_venal, razao, regiao, n_pares, preco,
-                calculado_em)
-               VALUES (?,?,?,?,?,?,datetime('now'))""",
+                origem_cep, calculado_em)
+               VALUES (?,?,?,?,?,?,?,datetime('now'))""",
             (a["url"], r["valor_venal"], r["razao"], r["regiao"],
-             r["n_pares"], a["preco"]),
+             r["n_pares"], a["preco"], r["origem_cep"]),
         )
         feitos += 1
     conn.commit()
 
     if verbose:
         print(f"com valor venal: {feitos:,d} ({sem:,d} sem preço)")
+        for k in ("anuncio", "rua", "nenhuma"):
+            if origens.get(k):
+                pct = 100 * origens[k] / max(feitos, 1)
+                print(f"  CEP do {k:<8}: {origens[k]:>5,d} ({pct:>4.1f}%)")
         print(f"tempo: {time.time()-t0:.0f}s")
     return feitos
 
@@ -280,6 +402,8 @@ def calcular(conn: sqlite3.Connection, refazer: bool = False,
 def main() -> int:
     p = argparse.ArgumentParser(description="Valor venal estimado (referência)")
     p.add_argument("--ajustar", action="store_true")
+    p.add_argument("--ajustar-ruas", action="store_true",
+                   help="monta o mapa rua -> CEP (para quem não publica CEP)")
     p.add_argument("--calcular", action="store_true")
     p.add_argument("--refazer", action="store_true")
     p.add_argument("--testar", nargs=2, metavar=("CEP", "PRECO"))
@@ -303,6 +427,9 @@ def main() -> int:
             print(f"  (o venal é {r['pct_do_preco']:.0f}% do preço pedido)")
     elif args.ajustar:
         ajustar(conn)
+        ajustar_ruas(conn)
+    elif args.ajustar_ruas:
+        ajustar_ruas(conn)
     elif args.calcular:
         calcular(conn, refazer=args.refazer)
     else:

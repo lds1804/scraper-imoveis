@@ -308,6 +308,30 @@ def main() -> int:
     if _tem("valores_venais"):
         verificar("valor venal" in html_txt,
                   "mostra o valor venal estimado")
+
+    print("\n=== 12) Rotulo do valor venal em linguagem clara ===")
+    # O texto mostrava a chave interna da região ('cep5:02919'), que não diz
+    # nada a quem lê. Agora traduz para a precisão: CEP / faixa de CEP / cidade.
+    # Este teste pega um anúncio de cada grau e confere o rótulo e a coerência.
+    verificar("cep5:" not in html_txt and "cep4:" not in html_txt,
+              "não vaza a chave interna da região no HTML")
+    if _tem("valores_venais"):
+        linhas = _c.execute("""SELECT anuncio_url, regiao, origem_cep FROM valores_venais
+                               WHERE regiao <> 'cidade' LIMIT 1""").fetchone()
+        if linhas:
+            # Duas armadilhas juntas aqui, as duas já custaram tempo:
+            #  1. `_get()` faz "/" + query, então passar "/anuncio/..." viraria
+            #     "//anuncio/..." — que é URL protocolo-relativa, com "anuncio"
+            #     no lugar do host. Por isso o cliente é chamado DIRETO.
+            #  2. A URL do anúncio tem `:` e `/`, e alguns têm `?` e `&`. Sem
+            #     codificar, os separadores viram rota e dá 404.
+            rd = cliente.get("/anuncio/" + urllib.parse.quote(linhas[0], safe=""))
+            hd = rd.data.decode("utf-8", "replace")
+            verificar(rd.status_code == 200,
+                      f"detalhe do anúncio com região fina abre ({rd.status_code})")
+            verificar("do CEP" in hd or "faixa de CEP" in hd or "região do CEP" in hd,
+                      "rótulo da região fina é legível")
+            verificar("transaç" in hd, "detalhe explica em que a razão se baseia")
     _c.close()
 
     print("\n" + "=" * 58)

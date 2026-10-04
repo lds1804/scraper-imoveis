@@ -3,49 +3,109 @@
 > Lista de tarefas do projeto, organizada por tema.
 > Legenda: ✅ feito · 🔶 parcial · ⬜ pendente
 >
-> Última revisão: 2026-10-04
+> Última revisão: 2026-10-04 (números reconferidos contra o banco)
+
+---
+
+## Onde estamos — pendências em ordem de facilidade
+
+Tudo abaixo foi **medido no banco**, não deduzido da lista. Vários itens que
+estavam marcados como concluídos nesta lista **não estavam** de fato, e é isso
+que esta revisão corrige.
+
+### 1. Refazer a detecção de duplicatas — o mais fácil
+`achar_duplicatas.py --marcar`. O código está pronto e as colunas `dup_*`
+existem, mas estão **todas vazias**: os 9 grupos foram perdidos quando a base
+foi reconstruída. Só CPU, sem custo de API. Precisa antes ter as fotos locais
+(as 57.402 já estão baixadas).
+
+### 2. Rodar a análise visual nos 2.707 anúncios que faltam
+O script existe e o preço é conhecido: **menos de US$ 7** para o lote inteiro.
+Sem isso, os filtros de quintal e de árvore simplesmente **não têm dado em 61%
+da base**, e qualquer contagem de "quantos têm quintal" fica respondendo só
+sobre os 3 bairros já analisados — que é um viés invisível na tela.
+
+### 3. Decidir os pesos da nota de encaixe (JEV)
+O cálculo é trivial depois que os pesos existirem. As features já estão
+calculadas (área, quartos, quintal, conservação, preço vs mercado). A decisão
+de peso é do dono do produto, não do código — é o item que **depende de você**,
+não de programação.
+
+### 4. Levar o modelo de casa para a interface
+`modelo_casa.py` já está validado (mediana estimado/real 1,04) e não aparece em
+lugar nenhum da tela. É ligar o dado que já existe a mais um bloco.
+
+### 5. Rodar o pipeline diário (exige AWS)
+Junto com o item 1 da seção 5. Precisa de conta e de decisão de arquitetura;
+não é uma sessão de código.
+
+### 6. Usar LLM no texto das descrições (opcional, menor retorno)
+As regras determinísticas já cobrem quintal e financiamento. O ganho estaria em
+eufemismo e nuance. É o único item aqui que gasta API e cujo retorno ainda não
+está demonstrado.
 
 ---
 
 ## 1. Coleta de dados (crawlers)
 
+> **Nota:** os números desta seção foram reconferidos contra o banco em
+> 2026-10-04. Vários estavam parados na época de 4 bairros.
+
 - [x] **Crawler do Imovelweb** funcionando
       Playwright com contexto persistente para passar pelo Cloudflare.
-      Coleta 4 bairros: Vila Mangalot, Parque São Domingos, City América e
-      Parque Maria Domitila — **178 anúncios**.
-- [x] **Crawler da OLX** nos mesmos bairros.
+      Estado atual: **131 anúncios** do Imovelweb, dentro do total de
+      **4.793** dos 4 portais (o Imovelweb é hoje o menor deles).
+- [x] **Crawler da OLX**
       Playwright (a OLX devolve 403 para `requests`). A OLX **não aceita
       filtro de tipo** por nenhum caminho, então o filtro é feito depois.
+      **1.890 anúncios** — o maior portal da base, junto com o ZAP.
+- [x] **Crawler do ZAP/VivaReal** e **do QuintoAndar**
+      **1.895** (ZAP) e **877** (QuintoAndar). São os que mais ajudam: o ZAP
+      é o único portal que publica o **CEP** no anúncio.
 - [x] **Enriquecimento pela página de detalhe**
       Descrição completa, quartos/banheiros/vagas, financiamento e a
       **galeria completa** (a listagem publica só 1 foto de capa; o detalhe
-      traz até 50). Resultado: **4.756 fotos** armazenadas.
+      traz até 50). Resultado: **57.402 fotos** armazenadas.
 - [x] **Validação de localidade**
       Todo anúncio salvo é de São Paulo **e** de um dos bairros-alvo —
       evita tanto o fallback nacional do site quanto bairro errado.
 - [x] **Ampliar a lista de bairros**
-      **21 bairros configurados** e 4 portais coletando (Imovelweb, OLX,
-      ZAP/VivaReal — mesmo inventário — e QuintoAndar).
+      **21 bairros configurados**; **18** têm anúncios na base.
 - [ ] **Rodar o crawler diariamente**, de forma automática
       (ver pipeline na AWS, item 5).
 - [x] **Retirar os apartamentos da busca**
-      `tipo_do_anuncio()` classifica por título e URL. **472 apartamentos
-      removidos** (1.104 → 632). Armadilha encontrada: `vila` é **nome de
-      bairro** (Vila Mangalot, Vila Leopoldina), não tipo de imóvel —
-      classificava todo apartamento desses bairros como casa.
+      `tipo_do_anuncio()` classifica por título e URL. Armadilha encontrada:
+      `vila` é **nome de bairro** (Vila Mangalot, Vila Leopoldina), não tipo
+      de imóvel — classificava todo apartamento desses bairros como casa.
 - [x] **Filtro de preço máximo**
       `PRECO_MAX = 1.000.000`, verificado nos 4 níveis: `config`,
       `atende_preco()`, o `priceMax` da API e o SQLite final.
+      Reconferido: **nenhum** anúncio na base passa de R$ 1.000.000.
 
 ## 2. Enriquecimento com IA (DeepSeek)
 
-- [x] **Atributos extraídos das FOTOS** (visão computacional)
+- [x] **Atributos extraídos das FOTOS** (visão computacional) — **funciona**
       quintal, piso do quintal (terra/grama/cimento/misto), árvores,
       vegetação, iluminação, arejamento, conservação, janelas grandes,
       fachada, reforma, piso interno, cômodos, extras (piscina,
       churrasqueira, edícula, varanda, área gourmet…) e **problemas**
       (mofo, infiltração, entulho, obra inacabada, abandono).
-      **178/178 anúncios analisados, 0 falhas.**
+      **Mas a cobertura caiu:** hoje são **1.829 de 4.793 anúncios (38%)**,
+      e não os 178/178 que estavam aqui antes. A base cresceu de 178 para
+      4.793 e a análise não foi reexecutada.
+      Completos: Parque Maria Domitila (638/638), Vila Mangalot (435/436),
+      Parque São Domingos (756/775). **Zerados:** os outros 13 bairros —
+      Vila Pereira Barreto (524), Vila Jaguara (465), Jardim Líbano (423),
+      Lapa (365), Vila Bonilha (361), Pirituba (237), Vila Romana (187),
+      Barra Funda (140), Vila Leopoldina (120) e os pequenos.
+      **2.707 anúncios têm fotos baixadas e nunca passaram pela visão.**
+- [ ] **Rodar a análise visual nos 2.707 que faltam**
+      O script já existe (`analisar_visao.py`) e o custo é conhecido:
+      `detail: original` custa 458 tokens/imagem, ~US$ 0,0024 por anúncio de
+      30 fotos — o lote inteiro sai por **menos de US$ 7**. É a tarefa mais
+      fácil e de maior efeito: sem ela, os filtros "quintal" e "árvore de
+      porte" simplesmente não têm dado em 61% da base, e a nota de encaixe
+      fica viesada para os 3 bairros analisados.
 - [x] **Análise do texto da descrição** para quintal e financiamento
       Resolvido com **regras determinísticas** (palavras-chave + análise
       por frase) em vez de LLM: mais barato, auditável e reproduzível.
@@ -78,6 +138,13 @@
       ⚠️ Ponto de atenção já registrado no requisito: precisa ser
       **determinístico** — passar **features já calculadas**, não o texto
       bruto.
+      **O que já existe NÃO é isso:** a interface oferece ordenar por
+      "Melhor match" (`ordem=score`), mas esse `score_quintal` é uma
+      **contagem de palavras-chave no texto** (`config.PALAVRAS_QUINTAL`),
+      não uma nota de encaixe. Por exemplo, um "sim" de quintal conta pelo
+      menos +1, mas quem olha prefere terreno grande e casa conservada.
+      Construir a nota de verdade implica decidir **pesos** — e pesos são
+      uma escolha do dono do produto, não do código.
 - [ ] **Estudar outras aplicações** do JEV neste caso.
 
 ## 3-B. ITBI e comparação de preços
@@ -126,6 +193,9 @@
       venal projetado e (3) área oficial do cadastro (GeoSampa). Há filtro
       "abaixo do preço praticado" e ordenação por "mais abaixo do mercado",
       além do bloco com as transações usadas na comparação.
+      > **O modelo de casa (`modelo_casa.py`) NÃO está na interface.** Ele
+      > existe e está validado por linha de comando (terreno + construção
+      > depreciada), mas não é uma das três medidas exibidas.
 - [x] **Valor venal na interface**
       Rótulo deixa claro que é **projeção de referência tributária**, não
       preço de mercado — serve para comparar com o IPTU.
@@ -155,7 +225,7 @@
 
 - [x] **Testes automatizados** — backend e interface
       Pasta `tests/` criada, com `_bootstrap.py` que põe `src/` no path.
-      **`testar_web.py`: 48 verificações** (rotas, cada filtro reduz o total,
+      **`testar_web.py`: 52 verificações** (rotas, cada filtro reduz o total,
       filtros combinados, filtros múltiplos, chips removem só a si mesmos,
       paginação, as três medidas de valor, links da listagem, 404 em anúncio
       inexistente) e **`testar_tipo.py`: 32**. Também `medir_rotas.py` para
@@ -179,11 +249,17 @@
       Lambdas para os crawlers e para o site, com execução diária.
 - [x] **Não salvar anúncios repetidos**
       Dedup por URL (chave primária) — reprocessar não duplica.
-- [x] **Agrupar anúncios repetidos de imobiliárias diferentes**
-      Detecção por **pHash das fotos** (comparar URL/ID não funciona:
-      cada imobiliária sobe a própria cópia no CDN).
-      **9 grupos marcados.** Marca, **não remove** — preços diferentes entre
-      as cópias são informação útil.
+- [ ] **Agrupar anúncios repetidos de imobiliárias diferentes** — dados perdidos
+      O código está pronto e a detecção por **pHash das fotos** funciona
+      (comparar URL/ID não serve: cada imobiliária sobe a própria cópia no CDN).
+      **Mas as colunas `dup_*` estão TODAS vazias (0 linhas)** — `dup_grupo`,
+      `dup_qtd`, `dup_melhor`, `dup_n_fotos`, `dup_menor_preco` e
+      `dup_detalhes`. Os 9 grupos que existiam antes foram perdidos, quase
+      certamente quando a base foi reconstruída de 178 para 4.793 anúncios.
+      Para refazer: `.venv\Scripts\python.exe achar_duplicatas.py --marcar`.
+      Marca, **não remove** — preços diferentes entre as cópias são informação
+      útil. Com 57 mil fotos será bem mais lento que os 178 de antes, mas é só
+      CPU: não gasta API.
 
 ---
 
