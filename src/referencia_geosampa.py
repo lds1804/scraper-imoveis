@@ -102,6 +102,58 @@ def _grau(dif: float | None) -> str:
     return "divergente"
 
 
+def _casa_com(anuncio: float | None, construida: float | None,
+              terreno: float | None) -> tuple[float | None, str]:
+    """Descobre COM QUAL das duas áreas o número do anúncio casa.
+
+    POR QUE ISTO EXISTE
+    -------------------
+    O anúncio publica **um** número de metragem, e o cadastro tem **dois**
+    (terreno e construção). Assumir que o do anúncio é a construção estava
+    errado em muitos casos — medido nos 929 anúncios com lote exato:
+
+        bate SÓ com a construída :  380  (40,9%)
+        bate SÓ com o terreno    :  113  (12,2%)
+        bate com os DOIS (iguais):  149  (16,0%)
+        não bate com nenhum      :  287  (30,9%)
+
+    A causa é estrutural: a prefeitura tem `area_terreno` em **100%** dos
+    1,6 milhão de lotes, mas o anúncio quase não tem esse campo (**1,1%**).
+    Então o portal publica a metragem que possui — que muitas vezes é o
+    terreno. A prova é exata em vários casos: Rua Álvares Otero 37 tem
+    terreno 200 m² e o anúncio diz 200 m²; Rua Itapejara 86 tem terreno
+    434 m² e o anúncio diz 434 m².
+
+    Antes desta função, esses casos eram classificados como "divergente" —
+    um erro de MEDIÇÃO nosso, não do portal.
+
+    Devolve `(grau, campo)` onde `campo` diz o que o número do anúncio é:
+    `"ambos"`, `"construcao"`, `"terreno"`, `"nenhum"` ou `"sem dado"`.
+    """
+    if not anuncio:
+        return None, "sem dado"
+
+    def perto(oficial: float | None) -> bool:
+        return bool(oficial) and abs(anuncio - oficial) / oficial <= \
+            FAIXA_OK / 100
+
+    c_ok = perto(construida)
+    t_ok = perto(terreno)
+
+    if c_ok and t_ok:
+        return _grau(0.0), "ambos"
+    if c_ok:
+        dif = 100 * (anuncio / construida - 1)
+        return _grau(dif), "construcao"
+    if t_ok:
+        dif = 100 * (anuncio / terreno - 1)
+        return _grau(dif), "terreno"
+    # não casa com nenhum: mantém a comparação com a CONSTRUÍDA (é o que o
+    # anúncio deveria declarar) e marca como divergente de verdade
+    dif = 100 * (anuncio / construida - 1) if construida else None
+    return _grau(dif), "nenhum"
+
+
 # ---------------------------------------------------------------------------
 # Agregação
 # ---------------------------------------------------------------------------
@@ -268,6 +320,13 @@ def conferir(conn: sqlite3.Connection, anuncio: sqlite3.Row) -> dict | None:
 
     É esta função que produz a segunda medida de referência: o cadastro diz
     o que existe oficialmente, e a diferença contra o anúncio é o sinal.
+
+    O ponto delicado é **qual** área do cadastro comparar. O anúncio publica
+    um número só, e o portal usa o campo que tem: medido, o `area_terreno` do
+    anúncio existe em apenas 1,1% dos casos enquanto o cadastro tem terreno
+    em 100% — então muitas vezes o número do anúncio **é o terreno**.
+    Comparar sempre com a construção acusava divergência inexistente em ~43%
+    dos casos (ver `_casa_com`).
     """
     ref = buscar(conn, anuncio["rua"] or "",
                  endereco.numero_do_logradouro(anuncio["rua"] or ""))
@@ -276,17 +335,25 @@ def conferir(conn: sqlite3.Connection, anuncio: sqlite3.Row) -> dict | None:
 
     ac = anuncio["area_construida"]
     of = ref["area_construida"]
-    dif = (100 * (ac / of - 1)) if (ac and of) else None
-
     at = anuncio["area_terreno"]
     ot = ref["area_terreno"]
+
+    # A área do anúncio é o TERRENO? A da construção? As duas (iguais)?
+    grau, campo = _casa_com(ac, of, ot)
+
+    # `area_oficial`/`dif_pct` continuam comparando com a CONSTRUÇÃO, porque é
+    # o campo que o anúncio deveria declarar — mas agora `area_casa` diz o que
+    # o número do anúncio realmente é, e `dif_pct` só é acusação quando
+    # `campo == 'nenhum'` ou `'construcao'`.
+    dif = (100 * (ac / of - 1)) if (ac and of) else None
     dif_t = (100 * (at / ot - 1)) if (at and ot) else None
 
     return {
         **ref,
         "area_anuncio": ac, "area_oficial": of, "dif_pct": dif,
         "terreno_anuncio": at, "terreno_oficial": ot, "dif_terreno_pct": dif_t,
-        "grau": _grau(dif),
+        "area_casa": campo,
+        "grau": grau,
         "grau_terreno": _grau(dif_t),
     }
 
@@ -314,6 +381,12 @@ def calcular(conn: sqlite3.Connection, bairro: str = "",
         );
         """
     )
+    # coluna nova: QUAL area o numero do anuncio e'. Bancos antigos se
+    # atualizam sozinhos (o `IF NOT EXISTS` não altera tabela existente).
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(areas_oficiais)")}
+    if "area_casa" not in cols:
+        conn.execute("ALTER TABLE areas_oficiais ADD COLUMN area_casa TEXT")
+        conn.commit()
     if refazer:
         conn.execute("DELETE FROM areas_oficiais")
         conn.commit()
@@ -334,6 +407,7 @@ def calcular(conn: sqlite3.Connection, bairro: str = "",
 
     por_nivel: dict[str, int] = {}
     graus: dict[str, int] = {}
+    campos: dict[str, int] = {}
     sem = 0
     t0 = time.time()
     for a in anuncios:
@@ -345,14 +419,16 @@ def calcular(conn: sqlite3.Connection, bairro: str = "",
             """INSERT OR REPLACE INTO areas_oficiais
                (anuncio_url, nivel, n_lotes, area_anuncio, area_oficial,
                 area_terreno_anuncio, area_terreno_oficial, dif_pct,
-                logradouro, numero, uso, calculado_em)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
+                logradouro, numero, uso, calculado_em, area_casa)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?)""",
             (a["url"], r["nivel"], r["n_lotes"], r["area_anuncio"],
              r["area_oficial"], r["terreno_anuncio"], r["terreno_oficial"],
-             r["dif_pct"], r["logradouro"], r["numero"], r["uso"]),
+             r["dif_pct"], r["logradouro"], r["numero"], r["uso"],
+             r["area_casa"]),
         )
         por_nivel[r["nivel"]] = por_nivel.get(r["nivel"], 0) + 1
         graus[r["grau"]] = graus.get(r["grau"], 0) + 1
+        campos[r["area_casa"]] = campos.get(r["area_casa"], 0) + 1
     conn.commit()
 
     if verbose:
@@ -361,12 +437,22 @@ def calcular(conn: sqlite3.Connection, bairro: str = "",
             if por_nivel.get(k):
                 print(f"   pelo {k:<7}        : {por_nivel[k]:,d}")
         print(f"sem referência           : {sem:,d}")
+        print("\no número do anúncio é a área de QUÊ: ")
+        rotulos = {
+            "construcao": "construção (o esperado)",
+            "terreno": "TERRENO (o portal não publicou a construção)",
+            "ambos": "as duas (terreno = construção)",
+            "nenhum": "nenhuma — divergência real",
+        }
+        for k in ("construcao", "terreno", "ambos", "nenhum"):
+            if campos.get(k):
+                print(f"   {rotulos[k]:<48} {campos[k]:>5,d}")
         print("\ndivergência de área (anúncio x cadastro):")
         for k in ("compativel", "atencao", "divergente", "sem dado"):
             if graus.get(k):
                 print(f"   {k:<12}          : {graus[k]:,d}")
         print(f"tempo: {time.time()-t0:.0f}s")
-    return {"niveis": por_nivel, "graus": graus, "sem": sem}
+    return {"niveis": por_nivel, "graus": graus, "campos": campos, "sem": sem}
 
 
 def relatorio(conn: sqlite3.Connection, limite: int = 20,

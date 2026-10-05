@@ -80,3 +80,6 @@ htmlcov/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# HTML gerado para conferencia visual (ver como o site renderiza)
+_inspecao/

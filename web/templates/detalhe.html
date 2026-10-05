@@ -107,16 +107,25 @@
 
         {% if a.area_of and a.area_of.dif_pct is not none %}
           {# Cadastro imobiliário fiscal (GeoSampa). A leitura é de conferência:
-             divergência pode ser cadastro desatualizado, não propaganda falsa. #}
+             divergência pode ser cadastro desatualizado, não propaganda falsa.
+
+             O anúncio publica UM número de metragem e o cadastro tem DOIS
+             (terreno e construção). Medido nos 929 lotes exatos: em 12% dos
+             casos o número do anúncio é o TERRENO, e em 16% terreno e
+             construção são iguais. Comparar sempre com a construção acusava
+             divergência em ~43% dos casos que pode não existir — por isso o
+             cabeçalho diz primeiro QUAL área o anúncio publicou. #}
           <div class="area-off-bloco {{ a.area_grau }}">
             <div class="area-off-cabeca">
               {{ ic.icone('casa', 'ico') }}
               <div>
                 <b>
-                  {% if a.area_grau == 'compativel' %}
+                  {% if a.area_of.area_casa == 'terreno' %}
+                    o anúncio publica a área do TERRENO
+                  {% elif a.area_of.area_casa == 'ambos' %}
                     metragem compatível com o cadastro
-                  {% elif a.area_grau == 'atencao' %}
-                    metragem {{ '%+.0f' | format(a.area_of.dif_pct) }}% vs cadastro
+                  {% elif a.area_grau == 'compativel' %}
+                    metragem compatível com o cadastro
                   {% else %}
                     metragem {{ '%+.0f' | format(a.area_of.dif_pct) }}% vs cadastro
                   {% endif %}
@@ -151,7 +160,17 @@
               </tr>
             </table>
 
-            {% if a.area_grau != 'compativel' %}
+            {% if a.area_of.area_casa == 'terreno' %}
+              <p class="bloco-nota">
+                O anúncio informou <b>uma</b> metragem ({{ a.area_of.area_anuncio | m2 }})
+                e ela corresponde ao <b>terreno</b> do cadastro
+                ({{ a.area_of.area_terreno_oficial | m2 }}), não à construção
+                ({{ a.area_of.area_oficial | m2 }}). A maioria dos portais
+                publica só esse campo — não é erro do anúncio, é o dado que
+                ele tem. A {{ a.area_of.area_oficial | m2 }} é o que a
+                prefeitura registra como construído.
+              </p>
+            {% elif a.area_grau != 'compativel' %}
               <p class="bloco-nota">
                 <b>Confira isto.</b> Divergência de metragem <b>não</b> prova que o
                 anúncio está errado: é comum construir ou reformar e não atualizar

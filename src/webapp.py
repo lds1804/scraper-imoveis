@@ -352,7 +352,7 @@ def _venais(conn: sqlite3.Connection, urls: list[str]) -> dict[str, dict]:
 
 
 def _grau_area(dif: float | None) -> str:
-    """Mesma faixa usada em `geosampa._grau_diferenca()`, para a interface.
+    """Mesma faixa usada em `referencia_geosampa._grau()`, para a interface.
 
     A zona morta de +-15% existe porque o anúncio arredonda e pode contar a
     área de forma diferente da prefeitura (útil x construída, varanda,
@@ -366,6 +366,26 @@ def _grau_area(dif: float | None) -> str:
     if a <= 30:
         return "atencao"
     return "divergente"
+
+
+def _grau_da_area(area_of: dict | None) -> str:
+    """Grau da conferência de área, respeitando QUAL área o anúncio informou.
+
+    O `dif_pct` compara o número do anúncio com a CONSTRUÇÃO do cadastro. Mas
+    medido nos 929 lotes exatos: em 12% dos casos o número do anúncio é o
+    **terreno** (o portal quase não tem o campo de construção) e em 16%
+    terreno e construção são iguais. Nesses casos comparar com a construção
+    acusava divergência que não existe.
+
+    `area_casa` (gravado por `referencia_geosampa`) diz o que o número do
+    anúncio é; quando ele casa com o terreno, o grau é compatível — o anúncio
+    não está mentindo, só publicou outro campo.
+    """
+    if not area_of:
+        return "sem dado"
+    if area_of.get("area_casa") in ("terreno", "ambos"):
+        return "compativel"
+    return _grau_area(area_of.get("dif_pct"))
 
 
 def _rel_foto(caminho: str) -> str:
@@ -615,8 +635,7 @@ def index():
         d = dict(a)
         d["comp"] = comps.get(a["url"])
         d["area_of"] = areas.get(a["url"])
-        d["area_grau"] = _grau_area(
-            (areas.get(a["url"]) or {}).get("dif_pct"))
+        d["area_grau"] = _grau_da_area(areas.get(a["url"]))
         d["venal"] = venais.get(a["url"])
         # "n_copias" é quantas ofertas do mesmo imóvel existem (1 = única).
         # O aviso no card só aparece quando há mais de uma.
@@ -716,7 +735,7 @@ def detalhe(anuncio_url: str):
     d["comp"] = comp
     d["transacoes"] = transacoes
     d["area_of"] = area_of
-    d["area_grau"] = _grau_area((area_of or {}).get("dif_pct"))
+    d["area_grau"] = _grau_da_area(area_of)
     d["venal"] = venal
     d["fotos"] = _fotos_locais(anuncio_url)
     # URLs já prontas (o JS do carrossel usa direto, sem montar caminho)
