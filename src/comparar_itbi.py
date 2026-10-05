@@ -282,6 +282,7 @@ def criar_tabela_comparacoes(conn: sqlite3.Connection) -> None:
             cep           TEXT,
             data_transacao TEXT,
             area          REAL,
+            area_terreno  REAL,
             valor_corrigido REAL,
             preco_m2      REAL
         );
@@ -293,6 +294,12 @@ def criar_tabela_comparacoes(conn: sqlite3.Connection) -> None:
     for nova in ("n_numeros", "n_financiadas", "metodo"):
         if nova not in cols:
             conn.execute(f"ALTER TABLE comparacoes ADD COLUMN {nova} INTEGER")
+    # `area_terreno` entrou depois: a comparação usa a área CONSTRUÍDA, mas
+    # mostrar o terreno ao lado ajuda a auditar (duas casas de 140 m² valem
+    # coisas diferentes se uma tem 125 m² de terreno e a outra 500 m²).
+    cols_det = {r[1] for r in conn.execute("PRAGMA table_info(comparacoes_detalhe)")}
+    if "area_terreno" not in cols_det:
+        conn.execute("ALTER TABLE comparacoes_detalhe ADD COLUMN area_terreno REAL")
     conn.commit()
 
 
@@ -333,8 +340,8 @@ def _transacoes(conn: sqlite3.Connection, anuncio: sqlite3.Row,
     # nível mais amplo (CEP) traria ainda mais lixo
     base = f"""
         SELECT id, logradouro, numero, bairro, cep, data_transacao,
-               area_construida, valor_transacao_corrigido, financiamento,
-               valor_financiado,
+               area_construida, area_terreno, valor_transacao_corrigido,
+               financiamento, valor_financiado,
                CASE WHEN {_CLAUSULA_FINANCIADO} THEN 1 ELSE 0 END AS financiado
         FROM itbi
         WHERE {_QUALIDADE}
@@ -526,12 +533,13 @@ def calcular(conn: sqlite3.Connection, reaj: indices.Reajustador,
         conn.executemany(
             """INSERT INTO comparacoes_detalhe
                (anuncio_url, itbi_id, logradouro, numero, bairro, cep,
-                data_transacao, area, valor_corrigido, preco_m2)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                data_transacao, area, area_terreno, valor_corrigido, preco_m2)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             [
                 (res["anuncio_url"], t["id"], t["logradouro"], t["numero"],
                  t["bairro"], t["cep"], t["data_transacao"],
-                 t["area_construida"], t["valor_transacao_corrigido"],
+                 t["area_construida"], t["area_terreno"],
+                 t["valor_transacao_corrigido"],
                  t["valor_transacao_corrigido"] / t["area_construida"])
                 for t in res["transacoes"]
             ],

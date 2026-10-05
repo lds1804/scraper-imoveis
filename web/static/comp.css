@@ -118,6 +118,9 @@
 }
 .comp-transacoes tr:last-child td { border-bottom: 0; }
 .comp-transacoes td.end { color: var(--muted); }
+/* a coluna do terreno é secundária à área construída (que é a que entra na
+   conta do R$/m²), então fica mais discreta que ela */
+.comp-transacoes td.terr { color: var(--muted); }
 
 /* ---------------------------------------------------------------------------
    Área oficial do cadastro fiscal (GeoSampa) vs metragem do anúncio

@@ -320,7 +320,7 @@
               <table>
                 <thead>
                   <tr>
-                    <th>data</th><th>área</th><th>valor</th>
+                    <th>data</th><th>constr.</th><th>terreno</th><th>valor</th>
                     <th>R$/m²</th><th>endereço</th>
                   </tr>
                 </thead>
@@ -331,6 +331,13 @@
                             {{ t.data_transacao[6:8] }}/{{ t.data_transacao[4:6] }}/{{ t.data_transacao[0:4] }}
                           {% else %}?{% endif %}</td>
                       <td>{{ t.area | round(0) | int }} m²</td>
+                      {# O terreno vem do cadastro fiscal da prefeitura. É o
+                         que diferencia duas casas de mesma área construída:
+                         terreno maior costuma valer mais na mesma rua. #}
+                      <td class="terr">
+                        {% if t.area_terreno %}{{ t.area_terreno | round(0) | int }} m²
+                        {% else %}<span class="fraco">—</span>{% endif %}
+                      </td>
                       <td>{{ t.valor_corrigido | moeda }}</td>
                       <td>{{ t.preco_m2 | moeda }}</td>
                       <td class="end">{{ t.logradouro }} {{ t.numero or '' }}</td>
@@ -339,6 +346,9 @@
                 </tbody>
               </table>
               <p class="bloco-nota">
+                <b>constr.</b> é a área construída e <b>terreno</b> é a área do
+                lote, ambas do cadastro fiscal da prefeitura. O R$/m² usa só a
+                área construída, para ser comparável entre casas.
                 Valores corrigidos pelo IPCA (IBGE) para o mês atual, para uma
                 venda de 2010 ser comparável com o preço de hoje.
                 Atenção: o IPCA é a inflação <b>geral</b> — imóveis podem ter
