@@ -299,6 +299,90 @@ link "ver no portal".
 | **Acessar do celular** | **login**, não URL pública. URL não é cadeado: se qualquer um que a ache acessa, já é "ao alcance do público" |
 | **Público de verdade** | publicar **a análise sem as fotos** + link "ver no portal" |
 
+### 2.7 Site privado na AWS (só o dono acessa) — o que muda
+
+Cenário pedido: publicar na AWS com acesso restrito. É viável e é o meio-termo
+razoável, mas **três coisas precisam mudar antes** — o código como estava não
+podia ir para servidor.
+
+#### Os três bloqueios encontrados (medidos, não supostos)
+
+**1. `debug=True` é execução remota de código.**
+`webapp.py` terminava com `app.run(host="127.0.0.1", port=5000, debug=True)`.
+O depurador do Flask, exposto, permite **rodar comando no servidor** — é o
+vetor mais conhecido do Flask. Quem alcança o site lê o `.env` (com a chave da
+DeepSeek) ou apaga o banco.
+
+> Atenuante verificado: `webapp.py` **não** importa `visao`/`analise_visual`,
+> então a chave não aparece em traceback. Mas o `.env` está na raiz, ao lado
+> do banco — legível por qualquer execução de comando.
+
+**2. `host="127.0.0.1"` não escuta nada.** Em container na AWS isto significa
+que **ninguém** alcança, nem o balanceador.
+
+**3. As rotas `/_ponte/*` não tinham guarda nenhuma.** O código **afirmava**:
+
+> *"Ferramenta de uso pessoal e local (só aceita 127.0.0.1)."*
+
+Procurei no bloco: a única ocorrência de `127.0.0.1` era **nesse comentário**.
+A rota `/_ponte/html` aceitava POST de qualquer origem, respondia com
+`Access-Control-Allow-Origin: *` e **grava `request.get_data()` em disco** (até
+120 caracteres de nome de arquivo). `/_ponte/limpar` fazia `rmtree`. Expostas,
+qualquer um escreve e apaga arquivo no servidor.
+
+> **Lição de método:** um comentário que afirma uma garantia não é a garantia.
+> Este sobreviveu porque ninguém testou a partir de outro IP.
+
+#### O que foi implementado
+
+`src/ambiente.py` (novo) decide o modo pelo ambiente — nunca fixo no código:
+
+| variável | efeito |
+|---|---|
+| `SITE_AMBIENTE=producao` | desliga `debug`, sobe em `0.0.0.0`, **exige senha** |
+| `SITE_SENHA=<longa>` | a senha do acesso (mínimo 12 caracteres) |
+| `SITE_USUARIO=eu` | usuário (opcional) |
+
+No `webapp.py`:
+- **`before_request` com autenticação básica** em produção. Usa
+  `hmac.compare_digest` — comparação byte a byte vaza o prefixo correto da
+  senha pelo tempo de resposta.
+- **Guarda de rede real** nas rotas `/_ponte/*` (`_ponte_so_local()` → 403).
+  Elas não podem exigir login porque o navegador as chama de dentro do
+  `imovelweb.com.br`; a escolha foi permiti-las **só de 127.0.0.1**.
+- **`noindex` + `no-store`** em toda resposta (`X-Robots-Tag`,
+  `Cache-Control`, `X-Frame-Options`, `Referrer-Policy`) e `<meta robots>` nos
+  templates. Sem isso, um buscador indexa o site privado.
+- **Recusa a subir sem senha.** Em produção sem `SITE_SENHA`, `ambiente.validar()`
+  levanta exceção e o processo morre. É deliberado: *um site que parece
+  protegido e não está é pior que um site que não sobe.*
+
+#### Legalidade neste cenário
+
+Continua valendo a análise de 2.6, com **duas diferenças**:
+
+1. **O dispositivo passa a incidir.** Em `127.0.0.1` o site não é "ao alcance
+   do público" (art. 5º, V). Na AWS ele **está** na internet — mesmo com
+   senha. A defesa segue sendo o art. 46, VIII (o objetivo é a análise, não a
+   foto), mas **a posição é mais frágil que a local**.
+2. **A autenticação é o que sustenta o "uso privado".** Autenticação básica
+   com senha longa é controle de acesso real (ao contrário de URL não
+   divulgada). Autenticação básica transmite a senha em base64 — **só use com
+   HTTPS**, que o CloudFront fornece.
+
+**O que deixa isto defensável:** as fotos **linkadas do CDN** (branch
+`feat/site-publico`) em vez de hospedadas. Assim o servidor não armazena nem
+serve obra de terceiro — ele aponta para quem já a publica. Essa combinação
+(sem hospedar + privado + noindex) é a versão mais conservadora possível.
+
+#### Limitações honestas
+
+- **Autenticação básica tem UX ruim** no celular (diálogo do navegador, sem
+  "sair"). Para uso pessoal serve; para mais gente, login com sessão.
+- **Senha em base64 não é criptografia** — sem HTTPS é texto claro. CloudFront
+  resolve, mas é obrigatório, não opcional.
+- **Nada foi implantado na AWS.** Isto é o código pronto, não o deploy.
+
 > **Aviso honesto:** não sou advogado e isto não é parecer jurídico. É a leitura
 > dos fatos técnicos medidos. Antes de abrir o site ao público, vale uma
 > consulta — a exposição principal (fotos) tem solução técnica simples
