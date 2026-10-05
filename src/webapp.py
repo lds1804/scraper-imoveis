@@ -1,12 +1,27 @@
 """Servidor web (Flask) para visualizar os anúncios coletados.
 
-Uso:
+Uso local (padrão):
     python webapp.py
     # depois abra http://127.0.0.1:5000
+
+Uso em SERVIDOR (AWS):
+    SITE_AMBIENTE=producao   # desliga o debug e exige senha
+    SITE_SENHA=<algo longo e aleatório>
+    SITE_USUARIO=eu          # opcional
+
+O `debug=True` do Flask é **execução remota de código** quando exposto: quem
+atinge o site roda comando no servidor (e lê o `.env`, que tem a chave da
+DeepSeek). Por isso o modo é decidido pelo ambiente e nunca fixo no código —
+ver `ambiente.py`.
+
+As rotas `/_ponte/*` gravam arquivo em disco e nasceram para serem chamadas
+pelo navegador LOCAL. Elas têm guarda de rede (só 127.0.0.1) porque expostas
+permitem escrever arquivo no servidor.
 """
 
 from __future__ import annotations
 
+import hmac
 import os
 import re
 import sqlite3
@@ -14,6 +29,7 @@ from types import SimpleNamespace
 
 from flask import (
     Flask,
+    Response,
     abort,
     render_template,
     request,
@@ -22,6 +38,7 @@ from flask import (
 )
 
 import config
+import ambiente
 import fotos_fonte as _fonte
 
 app = Flask(
@@ -31,6 +48,65 @@ app = Flask(
     template_folder=config.caminho("web", "templates"),
     static_folder=config.caminho("web", "static"),
 )
+
+
+# ---------------------------------------------------------------------------
+# Autenticação e guardas (necessárias em SERVIDOR, inofensivas em local)
+# ---------------------------------------------------------------------------
+# Em local nada disso atrapalha: `_exigir_login()` sai na primeira linha.
+# Em produção TODA rota passa pelo portão, menos as estáticas e as `/_ponte/*`
+# (essas têm a própria guarda de rede — ver `_e_local()`).
+_ROTAS_LIVRES = {"static"}
+
+
+def _e_local() -> bool:
+    """A requisição veio da própria máquina?
+
+    Usado nas rotas `/_ponte/*`: o navegador as chama de dentro do
+    `imovelweb.com.br` (por isso o CORS aberto), então elas NÃO podem exigir
+    login. A escolha foi mantê-las alcançáveis apenas de 127.0.0.1.
+
+    Isto **precisa** ser verificado de fato: o comentário antigo do módulo
+    dizia "só aceita 127.0.0.1" mas nunca checava nada — a rota aceitava POST
+    de qualquer lugar e gravava o corpo em disco.
+    """
+    return (request.remote_addr or "") in ("127.0.0.1", "::1", "localhost")
+
+
+def _sem_cache(resp: Response) -> Response:
+    """Impede cache e indexação — o site é privado."""
+    resp.headers["Cache-Control"] = "no-store, private"
+    resp.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    return resp
+
+
+@app.before_request
+def _exigir_login():
+    """Autenticação básica em produção. Em local, não faz nada."""
+    if not ambiente.exigir_login():
+        return None
+    if request.endpoint in _ROTAS_LIVRES:
+        return None
+    # `hmac.compare_digest` evita que o tempo de resposta revele o prefixo
+    # correto da senha (comparação byte a byte vaza a informação)
+    auth = request.authorization
+    if (auth and auth.username == ambiente.usuario()
+            and hmac.compare_digest(auth.password or "",
+                                    ambiente.senha() or "")):
+        return None
+    return _sem_cache(Response(
+        "Acesso restrito.\n", 401,
+        {"WWW-Authenticate": 'Basic realm="Caca-imoveis", charset="UTF-8"'},
+    ))
+
+
+@app.after_request
+def _cabecalhos(resp: Response) -> Response:
+    """Sem indexação e sem cache — o site é privado."""
+    return _sem_cache(resp)
 
 
 @app.context_processor
@@ -731,12 +807,23 @@ def foto(caminho: str):
 # O navegador integrado do VS Code costuma ter o clearance do Cloudflare válido
 # quando o perfil do Playwright já foi bloqueado. Esta rota recebe o HTML da
 # listagem e grava em disco, para o parser Python processar depois.
-# Ferramenta de uso pessoal e local (só aceita 127.0.0.1).
+#
+# GUARDA DE REDE: só aceita requisição da própria máquina. Sem isso, qualquer
+# um na internet escreve arquivo no servidor com o corpo que quiser (a rota
+# grava `request.get_data()` em disco e responde com CORS aberto). O
+# comentário antigo AFIRMAVA que só aceitava 127.0.0.1, mas nunca verificou.
 PONTE_DIR = "html_ponte"
+
+
+def _ponte_so_local():
+    """Aborta com 403 se a chamada não vier da própria máquina."""
+    if not _e_local():
+        abort(403)
 
 
 @app.route("/_ponte/html", methods=["POST", "OPTIONS"])
 def _ponte_receber_html():
+    _ponte_so_local()
     if request.method == "OPTIONS":
         resp = app.make_default_options_response()
     else:
@@ -757,6 +844,7 @@ def _ponte_receber_html():
 @app.route("/_ponte/limpar", methods=["POST"])
 def _ponte_limpar():
     """Apaga os HTMLs temporários depois de processar."""
+    _ponte_so_local()
     if os.path.isdir(PONTE_DIR):
         import shutil
 
@@ -770,6 +858,7 @@ def _ponte_alvos():
 
     O navegador usa isso para saber o que capturar (ele não lê o SQLite).
     """
+    _ponte_so_local()
     import json as _json
 
     # fica em `dados/`, não ao lado deste arquivo (que está em `src/`)
@@ -790,6 +879,7 @@ def _ponte_alvos():
 @app.route("/_ponte/progresso")
 def _ponte_progresso():
     """Quantos HTMLs de detalhe já foram capturados."""
+    _ponte_so_local()
     n = 0
     if os.path.isdir(PONTE_DIR):
         n = sum(
@@ -806,4 +896,15 @@ def _ponte_progresso():
 
 if __name__ == "__main__":
     os.makedirs(config.FOTOS_DIR, exist_ok=True)
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    # Em produção a configuração tem de ser segura ANTES de abrir a porta:
+    # sem senha o app se recusa a subir (um site que parece protegido e não
+    # está é pior que um site que não sobe).
+    ambiente.validar()
+    print(f"  {ambiente.descricao()}")
+    if ambiente.e_producao():
+        # debug DESLIGADO: ligado, o depurador do Flask permite executar
+        # comando no servidor (e ler o `.env`, que tem a chave da DeepSeek)
+        app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8000")),
+                debug=False)
+    else:
+        app.run(host="127.0.0.1", port=5000, debug=True)

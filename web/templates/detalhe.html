@@ -3,6 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  {# NAO INDEXAR: o site mostra dado de terceiro (foto e texto de anuncio) e
+     deve ficar fora de buscador. O cabecalho X-Robots-Tag faz o mesmo para
+     crawler que so olha header; esta meta cobre o resto. #}
+  <meta name="robots" content="noindex, nofollow, noarchive">
   {# SEM REFERER: e' o que permite LINKAR a foto do CDN do portal em vez de
      hospedar. Medido em 2026-10-05: os 4 CDNs respondem 200 SEM Referer, mas
      OLX e ZAP devolvem 403 quando o pedido vem de outro site. Inofensiva no
