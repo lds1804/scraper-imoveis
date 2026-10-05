@@ -237,6 +237,25 @@ def caminho(*partes: str) -> str:
 DB_PATH = caminho("imoveis.db")
 FOTOS_DIR = caminho("fotos")
 
+# ---------------------------------------------------------------------------
+# De onde o SITE tira as fotos
+# ---------------------------------------------------------------------------
+# "local" -> <img src="/fotos/<slug>/00.jpg"> (comportamento de sempre)
+# "link"  -> <img src="https://cdn-do-portal/..."> (não hospeda nada)
+#
+# As fotos são de imobiliárias (obra protegida). Baixar para analisar é uma
+# coisa; servir num site público é outra. Testado em 2026-10-05: os 4 CDNs
+# respondem SEM Referer (OLX e ZAP devolvem 403 só quando o pedido vem de
+# outro site). Com <meta name="referrer" content="no-referrer"> o navegador
+# não manda Referer e a imagem carrega.
+#
+# IMPORTANTE: isto muda SÓ o que a tela exibe. O pipeline de coleta continua
+# baixando todas as fotos para `fotos/` — é de lá que saem a análise visual
+# (DeepSeek) e o pHash das duplicatas. Trocar para "link" não apaga arquivo
+# nenhum, e as fotos continuam no seu computador.
+FOTOS_MODO = "local"
+
+
 # Quantas fotos BAIXAR por anúncio (0 = todas).
 #
 # Medido: a mediana é 12 fotos, mas a cauda é longa (há anúncio com 135). A

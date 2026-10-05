@@ -3,6 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  {# SEM REFERER: e' o que permite LINKAR a foto do CDN do portal em vez de
+     hospedar. Medido em 2026-10-05: os 4 CDNs respondem 200 SEM Referer, mas
+     OLX e ZAP devolvem 403 quando o pedido vem de outro site. Inofensiva no
+     modo local (nenhum pedido sai para fora). #}
+  <meta name="referrer" content="no-referrer">
   <title>{{ a.titulo or 'Anúncio' }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='comp.css') }}">
@@ -25,7 +30,7 @@
     <section class="carrossel" id="carrossel">
       {% if a.fotos %}
         <div class="carrossel-palco">
-          <img id="foto-atual" src="{{ url_for('foto', caminho=a.fotos[0]) }}" alt="{{ a.titulo }}">
+          <img id="foto-atual" src="{{ a.fotos[0] | foto_src }}" alt="{{ a.titulo }}">
 
           {% if a.fotos | length > 1 %}
             <span class="carrossel-contador">
@@ -33,7 +38,7 @@
             </span>
           {% endif %}
 
-          <a class="carrossel-abrir" href="{{ url_for('foto', caminho=a.fotos[0]) }}"
+          <a class="carrossel-abrir" href="{{ a.fotos[0] | foto_src }}"
              id="link-original" target="_blank" rel="noopener">
             {{ ic.icone('expandir') }} ver original
           </a>
@@ -54,7 +59,7 @@
               <button class="carrossel-mini {% if loop.first %}ativa{% endif %}"
                       type="button" data-idx="{{ loop.index0 }}"
                       aria-label="Ir para a foto {{ loop.index }}">
-                <img loading="lazy" src="{{ url_for('foto', caminho=f) }}" alt="">
+                <img loading="lazy" src="{{ f | foto_src }}" alt="">
               </button>
             {% endfor %}
           </div>

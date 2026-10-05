@@ -22,6 +22,7 @@ from flask import (
 )
 
 import config
+import fotos_fonte as _fonte
 
 app = Flask(
     __name__,
@@ -77,6 +78,27 @@ def _numero(valor) -> str:
     if f == int(f):
         return f"{int(f):,}".replace(",", ".")
     return f"{f:,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+@app.template_filter("foto_src")
+def _foto_src(f) -> str:
+    """URL para o <img src> de uma foto, respeitando `config.FOTOS_MODO`.
+
+    A foto chega como dict (ver `fotos_fonte.py`) com três campos:
+      src   -> já é a URL do CDN do portal, quando o modo é "link"
+      local -> caminho relativo na pasta `fotos/`, quando o modo é "local"
+
+    O `src` é preferido quando existe; senão monta a rota local `/fotos/...`.
+    Assim o template não precisa saber em que modo o site está.
+    """
+    if not f:
+        return ""
+    if isinstance(f, str):
+        # compatibilidade: versões antigas guardavam só o caminho
+        return url_for("foto", caminho=f)
+    if f.get("src"):
+        return f["src"]
+    return url_for("foto", caminho=f.get("local", ""))
 
 
 @app.template_filter("bairro")
@@ -378,66 +400,34 @@ def _rel_foto(caminho: str) -> str:
     Os dois precisam virar "<slug>/00.jpg", que é o que a rota `/fotos/<path>`
     espera (ela já serve a partir de `FOTOS_DIR`).
     """
-    base = config.FOTOS_DIR.replace("\\", "/").rstrip("/")
-    if caminho.startswith(base + "/"):
-        return caminho[len(base) + 1:]
-    try:
-        rel = os.path.relpath(caminho, base).replace("\\", "/")
-    except ValueError:
-        return caminho  # unidades diferentes (C: vs D:) no Windows
-    # se saiu para fora da pasta de fotos, não dá para tornar relativo
-    return caminho if rel.startswith("..") else rel
+    return _fonte._rel(caminho)
 
 
 def _fotos_locais_lote(conn: sqlite3.Connection,
-                       urls: list[str]) -> dict[str, list[str]]:
-    """Fotos de VÁRIOS anúncios numa consulta só.
+                       urls: list[str]) -> dict[str, list[dict]]:
+    """Fotos de VÁRIOS anúncios numa consulta só, pelo modo configurado.
 
-    Antes isto era `_fotos_locais()` chamada uma vez por card, e cada chamada
-    abria a própria conexão e varria a tabela `fotos` inteira (57 mil linhas,
-    sem índice em `anuncio_url`). Medido: 44 ms por card × 4.793 cards =
-    **213 s** para abrir a listagem — o app parecia travado.
+    Antes isto era uma consulta por card, e cada uma varria a tabela `fotos`
+    inteira (57 mil linhas, sem índice em `anuncio_url`). Medido: 44 ms por
+    card × 4.793 cards = **213 s** para abrir a listagem — o app parecia
+    travado.
 
     Duas coisas foram corrigidas: o índice `idx_fotos_anuncio` (plan passou de
     `SCAN` para `SEARCH`) e esta consulta em lote, que reaproveita a conexão
     já aberta em vez de abrir 4.793.
+
+    Devolve dicts (não strings) porque cada foto precisa saber o `src` do modo
+    atual e a URL remota ao mesmo tempo — ver `fotos_fonte.py`.
     """
-    saida: dict[str, list[str]] = {}
-    if not urls:
-        return saida
-    # lotes: o SQLite tem limite de variáveis por consulta (999 por padrão)
-    for i in range(0, len(urls), 900):
-        pedaco = urls[i:i + 900]
-        marcadores = ",".join("?" * len(pedaco))
-        for r in conn.execute(
-            f"""SELECT anuncio_url, arquivo_local FROM fotos
-                WHERE anuncio_url IN ({marcadores}) ORDER BY id""",
-            pedaco,
-        ):
-            p = r["arquivo_local"].replace("\\", "/")
-            # ignora vetores: são ícones do site (ex: right-arrow.svg)
-            if p.lower().endswith(".svg"):
-                continue
-            saida.setdefault(r["anuncio_url"], []).append(_rel_foto(p))
-    return saida
+    return _fonte.fotos_de_varios(conn, urls)
 
 
-def _fotos_locais(anuncio_url: str) -> list[str]:
-    """Retorna caminhos web (relativos) das fotos já baixadas do anúncio."""
+def _fotos_locais(anuncio_url: str) -> list[dict]:
+    """Fotos já baixadas do anúncio, pelo modo configurado."""
     conn = _conn()
-    rows = conn.execute(
-        "SELECT arquivo_local FROM fotos WHERE anuncio_url = ? ORDER BY id",
-        (anuncio_url,),
-    ).fetchall()
+    itens = _fonte.fotos_do_anuncio(conn, anuncio_url)
     conn.close()
-    caminhos = []
-    for r in rows:
-        p = r["arquivo_local"].replace("\\", "/")
-        # ignora vetores: são ícones do site (ex: right-arrow.svg) baixados por engano
-        if p.lower().endswith(".svg"):
-            continue
-        caminhos.append(_rel_foto(p))
-    return caminhos
+    return itens
 
 
 def _slug_fotos(anuncio_url: str) -> str:
@@ -636,7 +626,6 @@ def index():
         d["capa"] = fotos[0] if fotos else None
         d["slug_fotos"] = _slug_fotos(a["url"])
         cards.append(d)
-
     chips = _chips_ativos(
         {
             "bairro": bairros_sel,
@@ -719,8 +708,13 @@ def detalhe(anuncio_url: str):
     d["area_grau"] = _grau_area((area_of or {}).get("dif_pct"))
     d["venal"] = venal
     d["fotos"] = _fotos_locais(anuncio_url)
-    # URLs já prontas (o JS do carrossel usa direto, sem montar caminho)
-    d["fotos_web"] = [url_for("foto", caminho=f) for f in d["fotos"]]
+    # `fotos_web` só é usado quando NÃO há link remoto (modo local). No modo
+    # link o template usa `src` direto, que já é a URL do CDN do portal.
+    d["fotos_web"] = [
+        url_for("foto", caminho=f["local"]) if f["src"] is None else f["src"]
+        for f in d["fotos"]
+    ]
+    d["fotos_modo"] = getattr(config, "FOTOS_MODO", "local")
     d["slug_fotos"] = _slug_fotos(anuncio_url)
     return render_template("detalhe.html", a=d)
 

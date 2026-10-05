@@ -3,6 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  {# SEM REFERER e' o que faz o site poder LINKAR a foto do CDN do portal em
+     vez de hospedar. Medido em 2026-10-05: os 4 CDNs (Imovelweb, OLX, ZAP,
+     QuintoAndar) respondem 200 SEM Referer, mas OLX e ZAP devolvem 403 quando
+     o pedido vem de outro site. Com esta meta o navegador nao manda o
+     Referer e a imagem carrega -- sem hospedar 5 GB de foto de terceiro.
+     Inofensiva no modo local (nenhum pedido sai para fora). #}
+  <meta name="referrer" content="no-referrer">
   <title>Imóveis — Vila Mangalot / Parque São Domingo</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='comp.css') }}">
@@ -278,7 +285,7 @@
             {% if a.fotos_card %}
               {% for f in a.fotos_card %}
                 <img class="capa{% if not loop.first %} oculta{% endif %}"
-                     loading="lazy" src="{{ url_for('foto', caminho=f) }}" alt="">
+                     loading="lazy" src="{{ f | foto_src }}" alt="">
               {% endfor %}
             {% else %}
               <div class="sem-foto">
