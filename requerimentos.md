@@ -63,6 +63,65 @@ está demonstrado.
 
 ---
 
+## 0. Deploy, custo e legalidade (revisão de 2026-10-05)
+
+Plano completo em **`docs/plano-deploy-aws.md`**. Resumo do que foi **medido**:
+
+### Custo de tokens — o "R$ 30" explicado
+
+| cenário (base inteira, 4.793 anúncios / 57.402 fotos) | R$ |
+|---|---|
+| TODAS as fotos, `detail: original`, peak | **58,08** |
+| **TODAS as fotos, `detail: original`, off-peak** | **29,04** ← o "R$ 30" |
+| TODAS as fotos, `detail: low`, off-peak | 17,14 |
+| teto 8 fotos, `low`, off-peak | 13,99 |
+| **1× por grupo de duplicata, `low`, off-peak** | **12,43** |
+
+O código hoje tem `VISAO_DETALHE="original"` e **`VISAO_MAX_FOTOS = 0` (sem
+teto)** — envia todas as fotos. As alavancas, por ganho:
+**1× por grupo (−57%)** · `detail: low` (−41%) · off-peak (−50%) · teto de
+fotos · ledger de idempotência.
+
+**Manutenção diária custa centavos:** 20 anúncios novos/dia = R$ 3,44/mês
+(`low`) a R$ 6,54 (`original`).
+
+### Cadência por fonte (medida, não suposta)
+
+Só os **anúncios** precisam ser diários. O resto segue a latência da fonte:
+
+| dado | cadência | por quê |
+|---|---|---|
+| anúncios + fotos | **diário** | preço e estoque mudam todo dia |
+| análise visual | diário, **só os novos** | R$ 0,11–1,09/dia |
+| ITBI | **mensal** | a prefeitura publica por mês |
+| IPCA / IGP-M | **mensal** | o índice muda 1× por mês |
+| GeoSampa | semanal | o cadastro muda devagar |
+
+### Legalidade
+
+- ⚠️ **`Crawl-delay: 10` do ZAP e do VivaReal é ignorado hoje** (paralelismo de
+  8-10 threads). É a exposição mais clara e a mais fácil de corrigir.
+- A **OLX devolve 403 no próprio `robots.txt`** — zona cinzenta.
+- **LGPD não é o problema:** 0 colunas de corretor/telefone/e-mail/CRECI e
+  **0 de 131 descrições com contato**. O dado é do imóvel.
+- **O risco real é direito autoral:** as **fotos** (obra protegida — linkar do
+  CDN em vez de hospedar) e o **texto da descrição** (131 preenchidas, 71 com
+  mais de 500 caracteres — não reproduzir a íntegra).
+- **Não** contornar o 403 da OLX com proxy: isso transforma coleta de dado
+  público em evasão de medida técnica, que é agravante.
+
+### Números que decidem a arquitetura
+
+- **`site.db` = 46,3 MB**, não os 638 MB do banco de trabalho. O site **não lê**
+  `lotes` (1,6M) nem `itbi` (537k) — são só insumo de cálculo.
+- **A AWS aguenta:** foto média 93 KB, página de 60 cards = 5,5 MB →
+  **191.728 visitas/mês** cabem no 1 TB do CloudFront.
+- **O custo dominante é o DeepSeek, não a AWS** — e ele é controlável.
+- **Playwright não cabe em Lambda** (Chromium > 250 MB do zip) → a coleta vai
+  para **EC2 Spot sob demanda**.
+
+---
+
 ## 1. Coleta de dados (crawlers)
 
 > **Nota:** os números desta seção foram reconferidos contra o banco em
@@ -117,12 +176,23 @@ está demonstrado.
       Barra Funda (140), Vila Leopoldina (120) e os pequenos.
       **2.707 anúncios têm fotos baixadas e nunca passaram pela visão.**
 - [ ] **Rodar a análise visual nos 2.707 que faltam**
-      O script já existe (`analisar_visao.py`) e o custo é conhecido:
-      `detail: original` custa 458 tokens/imagem, ~US$ 0,0024 por anúncio de
-      30 fotos — o lote inteiro sai por **menos de US$ 7**. É a tarefa mais
+      O script já existe (`analisar_visao.py`) e o custo é conhecido: **medido
+      em 2026-10-05**, a lacuna real é de **2.964 anúncios (27.339 fotos)** e
+      fechá-la custa **R$ 9,25** com teto de 12 fotos + `detail: low`, ou
+      **R$ 14,92** com todas as fotos + `detail: original`. É a tarefa mais
       fácil e de maior efeito: sem ela, os filtros "quintal" e "árvore de
       porte" simplesmente não têm dado em 61% da base, e a nota de encaixe
       fica viesada para os 3 bairros analisados.
+      > **Onde o dinheiro vai (matriz medida, base inteira de 4.793):**
+      > todas+original+peak US$ 10,72 (**R$ 58**) · todas+original+off-peak
+      > **US$ 5,36 (R$ 29,04)** ← é o "R$ 30" · todas+low+off-peak R$ 17,14 ·
+      > teto 8+low+off-peak R$ 13,99 · **1× por grupo + low + off-peak R$ 12,43**.
+      > As alavancas, por ganho: **(1) analisar 1× por grupo de duplicata
+      > (−57%)**, (2) `detail: low` (−41%), (3) off-peak (−50%), (4) teto de
+      > fotos, (5) ledger de idempotência. O código hoje tem
+      > `VISAO_DETALHE="original"` e **`VISAO_MAX_FOTOS = 0` (sem teto)** —
+      > envia todas as fotos. A cauda é o desperdício: 42% dos anúncios têm
+      > 1-5 fotos, mas **14% têm mais de 25** (máximo 135).
 - [x] **Análise do texto da descrição** para quintal e financiamento
       Resolvido com **regras determinísticas** (palavras-chave + análise
       por frase) em vez de LLM: mais barato, auditável e reproduzível.
@@ -178,7 +248,16 @@ está demonstrado.
       **358 mil+ transações.**
 - [x] **Corrigir valores antigos pela inflação**
       `src/indices.py` usa o número-índice do IPCA (IBGE, agregado 1737).
-      A API do Banco Central **não resolve DNS** nesta rede.
+      > **CORREÇÃO (2026-10-05):** a afirmação de que "a API do Banco Central
+      > não resolve DNS" **estava errada e caducou**. `api.bcb.gov.br` responde
+      > normalmente hoje (`150.171.110.36`) e a série do IGP-M volta em **0,2 s**.
+      > A causa real da falha original era o **certificado self-signed** — a
+      > mesma armadilha do portal de dados abertos. Com `verify=False` funciona.
+      > O IGP-M é **disponível e levemente melhor** que o IPCA: a dispersão
+      > intrarrua do R$/m² corrigido cai de 18,6% (IPCA) para **17,4%** (IGP-M),
+      > e o IGP-M vence em 52,0% das ruas onde os dois divergem mais de 10%.
+      > Ganho real, mas pequeno — **não é o gargalo** (o erro do preço via ITBI
+      > é 23,8%). Branch `dados/indice-igpm`.
 - [x] **Normalizar endereços para cruzar anúncio × ITBI**
       `src/endereco.py` resolve três diferenças reais: tipo de via abreviado
       (`AV` vs `Avenida`), CEP com zero à esquerda (7 vs 8 dígitos) e número
@@ -268,7 +347,23 @@ está demonstrado.
       **sem nunca ter lido o `.env`**. Uma verificação que não verifica é pior
       que nenhuma.
 - [ ] **Pipeline de deploy na AWS** (free tier)
-      Lambdas para os crawlers e para o site, com execução diária.
+      **Plano completo e medido em `docs/plano-deploy-aws.md`** (branch
+      `plano/deploy-aws`). Os três números que decidem a arquitetura:
+      - **`site.db` = 46,3 MB**, não os 638 MB do banco de trabalho — o site
+        não lê `lotes` (1,6M) nem `itbi` (537k), que são só insumo de cálculo.
+        Gerado e medido por `medir_site_db.py`.
+      - **A AWS aguenta o tráfego:** foto média 93 KB, página com 60 cards =
+        5,5 MB, e cabem **191.728 visitas/mês** no 1 TB do CloudFront.
+      - **O custo dominante não é a AWS, é o DeepSeek** — e ele é controlável
+        (ver a seção 2 abaixo).
+      Cadência medida por fonte: anúncios **diário**; ITBI **mensal** (a
+      prefeitura publica por mês); IPCA/IGP-M **mensal**; GeoSampa semanal.
+      Branches criadas: `chore/limpeza-raiz`, `feat/visao-custo`,
+      `dados/indice-igpm`, `feat/pipeline-diario`, `feat/site-publico`.
+      > **Não é `RDS`:** o free tier do RDS é 12 meses, não "sempre grátis", e
+      > 46 MB não precisa de banco gerenciado. Também não é Lambda com
+      > Playwright: o Chromium não cabe nos 250 MB do zip — a coleta vai para
+      > EC2 Spot sob demanda.
 - [x] **Não salvar anúncios repetidos**
       Dedup por URL (chave primária) — reprocessar não duplica.
 - [x] **Agrupar anúncios repetidos de imobiliárias diferentes**
