@@ -83,3 +83,6 @@ desktop.ini
 
 # HTML gerado para conferencia visual (ver como o site renderiza)
 _inspecao/
+
+# pid do servidor de teste sob demanda
+_pid_servidor.txt

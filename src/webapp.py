@@ -165,6 +165,12 @@ def _chips_ativos(filtros: dict) -> list[dict]:
             q["so_arvores"] = "1"
         if filtros.get("so_abaixo") and sem != "so_abaixo":
             q["so_abaixo"] = "1"
+        # o grupo do imóvel visto: o chip "X" remove o filtro e volta à lista.
+        # Não é um filtro que o usuário escolhe na barra — vem do clique no
+        # aviso "+N anúncios deste imóvel" — mas precisa aparecer como chip
+        # para ele saber por que a lista está curta e poder sair.
+        if filtros.get("grupo") and sem != "grupo":
+            q["grupo"] = filtros["grupo"]
         if filtros.get("ordem") and filtros["ordem"] != ORDEM_PADRAO:
             q["ordem"] = filtros["ordem"]
 
@@ -211,6 +217,11 @@ def _chips_ativos(filtros: dict) -> list[dict]:
         chips.append({"rotulo": "com árvores (foto)", "url": base("so_arvores")})
     if filtros.get("so_abaixo"):
         chips.append({"rotulo": "abaixo do preço praticado", "url": base("so_abaixo")})
+    if filtros.get("grupo"):
+        chips.append({
+            "rotulo": "vendo as ofertas de um imóvel",
+            "url": base("grupo"),
+        })
 
     return chips
 
@@ -494,6 +505,12 @@ def index():
     # apareceu 25 vezes). Sem isso a lista repete o mesmo imóvel e o usuário
     # perde tempo relendo. Marcado por padrão; `?todas=1` desliga.
     todas = request.args.get("todas") == "1"
+    # FILTRO POR GRUPO. O aviso "+N anúncios deste imóvel" no card precisa
+    # levar às OUTRAS OFERTAS DAQUELE imóvel. Antes ele ligava `todas=1`,
+    # que mostra a listagem INTEIRA (4.793) em vez do grupo — medido: clicar
+    # levava de 2.938 para 4.793 anúncios, sem aproximar o usuário das
+    # outras ofertas do imóvel clicado.
+    grupo_sel = request.args.get("grupo", "").strip()
     ordem = request.args.get("ordem", "abaixo")
 
     # "abaixo da mediana do ITBI": razão = preço pedido / mediana das
@@ -562,7 +579,13 @@ def index():
     # (o de menor preço, escolhido em `achar_duplicatas.py --marcar`).
     # Quem não está em grupo nenhum (`dup_grupo IS NULL`) continua aparecendo:
     # não ter cópia não é motivo para sumir da lista.
-    if tem_dup and not todas:
+    #
+    # O grupo escolhido no card sobrepõe isso: quando `grupo` vem na URL,
+    # a lista mostra TODAS as ofertas daquele imóvel (é o outro lado do aviso).
+    if grupo_sel.isdigit():
+        sql += " AND a.dup_grupo = ?"
+        params.append(int(grupo_sel))
+    elif tem_dup and not todas:
         sql += " AND (a.dup_grupo IS NULL OR a.dup_melhor = 1)"
 
     # "abaixo da mediana do ITBI" — o JOIN precisa existir para o filtro valer
@@ -654,6 +677,10 @@ def index():
         d["n_fotos"] = len(fotos)
         d["capa"] = fotos[0] if fotos else None
         d["slug_fotos"] = _slug_fotos(a["url"])
+        # estamos vendo as ofertas de UM imóvel? marca cada card para o
+        # template indicar qual é a mais barata do grupo
+        d["no_grupo_visto"] = bool(grupo_sel) and grupo is not None
+        d["e_o_mais_barato"] = bool(d.get("dup_melhor"))
         cards.append(d)
 
     chips = _chips_ativos(
@@ -668,6 +695,7 @@ def index():
             "piso_quintal": pisos_sel,
             "so_arvores": so_arvores,
             "so_abaixo": so_abaixo,
+            "grupo": grupo_sel,
             "ordem": ordem,
         }
     )
@@ -675,6 +703,15 @@ def index():
 
     # A contagem exibida é o TOTAL filtrado, não o número de cards na página —
     # senão o usuário leria "60 imóveis" tendo 2.127 no resultado.
+    #
+    # `url_sem_grupo` é o link "ver a lista completa" do aviso de grupo:
+    # monta os mesmos filtros sem o `grupo`. Feito aqui (e não com `replace`
+    # no template) porque manipular querystring em Jinja com replaces encadeia
+    # e quebra com `?&` ou `&&`.
+    args_sem_grupo = {k: v for k, v in request.args.to_dict(flat=False).items()
+                      if k != "grupo"}
+    url_sem_grupo = url_for("index", **args_sem_grupo)
+
     return render_template(
         "index.html",
         cards=cards,
@@ -683,6 +720,7 @@ def index():
         n_paginas=n_paginas,
         total_filtrado=total_filtrado,
         por_pagina=POR_PAGINA,
+        url_sem_grupo=url_sem_grupo,
         filtros={
             "bairro": bairros_sel,
             "preco_max": preco_max,
@@ -695,6 +733,7 @@ def index():
             "so_arvores": so_arvores,
             "so_abaixo": so_abaixo,
             "todas": todas,
+            "grupo": grupo_sel,
             "ordem": ordem,
         },
         chips=chips,

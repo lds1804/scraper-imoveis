@@ -199,6 +199,21 @@
   </div>
 
   <div class="resultados">
+    {% if filtros.grupo %}
+      {# Contexto do clique em "+N anúncios deste imóvel": a lista agora mostra
+         SÓ as ofertas daquele imóvel. Sem dizer isso o usuário estranha a
+         lista curta e não sabe como voltar. #}
+      <p class="aviso-grupo">
+        {{ ic.icone('copias') }}
+        <span>
+          Mostrando <b>as ofertas deste mesmo imóvel</b>, feitas por
+          imobiliárias diferentes — compare os preços.
+        </span>
+        <a href="{{ url_sem_grupo }}" class="aviso-grupo-voltar">
+          ver a lista completa
+        </a>
+      </p>
+    {% endif %}
     <p class="contagem">
       {% if filtros_ativos %}
         <b>{{ total }}</b> imóve{% if total == 1 %}l{% else %}is{% endif %} encontrado{% if total != 1 %}s{% endif %}
@@ -415,15 +430,21 @@
               {% endif %}
             </ul>
 
-            {% if a.n_copias and a.n_copias > 1 %}
+            {% if a.n_copias and a.n_copias > 1 and not filtros.grupo %}
               {# Aviso de que o MESMO imóvel tem outras ofertas. Quando a lista
                  mostra só uma linha por imóvel (padrão), este card é a oferta
                  MAIS BARATA, e o aviso informa quanto as outras pedem — para
                  o usuário saber que existe margem de negociação entre
-                 imobiliárias e que ele já está vendo a menor. #}
+                 imobiliárias e que ele já está vendo a menor.
+
+                 O clique filtra pelo GRUPO daquele imóvel (`?grupo=N`), não
+                 por `todas=1`. Antes o link levava a `?todas=1`, que mostra a
+                 listagem INTEIRA (4.793 em vez de 2.938 anúncios): o usuário
+                 clicava em "mais 24 anúncios deste imóvel" e caía na lista
+                 completa, sem nunca ver as outras ofertas DAQUELE imóvel. #}
               <a class="card-copias"
-                 href="{{ url_for('index', **dict(request.args.to_dict(flat=False), todas=['1'])) }}"
-                 title="Este é o mesmo imóvel anunciado por outras imobiliárias. Clique para ver todas as ofertas.">
+                 href="{{ url_for('index', **dict(request.args.to_dict(flat=False), grupo=[a.dup_grupo])) }}"
+                 title="Este é o mesmo imóvel anunciado por outras imobiliárias. Clique para ver só as ofertas deste imóvel.">
                 {{ ic.icone('copias') }}
                 {% if a.preco and a.preco_max_copias and a.preco_max_copias > a.preco %}
                   mais {{ a.n_copias - 1 }} anúncio{% if a.n_copias - 1 != 1 %}s{% endif %}
@@ -433,6 +454,27 @@
                   deste imóvel
                 {% endif %}
               </a>
+            {% elif a.no_grupo_visto %}
+              {# Estamos VENDO as ofertas do mesmo imóvel. Em vez de repetir o
+                 aviso, diz qual é a mais barata — é a informação que decide.
+                 Medido no maior grupo: 24 dos 25 anúncios têm o MESMO preço
+                 (R$ 470.000) e um pede R$ 499.000. Dizer "0% acima" em 24
+                 cards é ruído; então o caso de preço igual tem texto próprio,
+                 e só quem realmente pede mais ganha o percentual. #}
+              <div class="card-copias no-grupo">
+                {{ ic.icone('copias') }}
+                {% if a.e_o_mais_barato %}
+                  <b>a mais barata</b> destas ofertas
+                {% elif a.preco and a.preco_min_copias
+                        and a.preco > a.preco_min_copias %}
+                  {{ ((a.preco / a.preco_min_copias - 1) * 100) | round(0) | int }}%
+                  acima da mais barata ({{ a.preco_min_copias | moeda }})
+                {% elif a.preco and a.preco_min_copias %}
+                  mesmo preço da mais barata
+                {% else %}
+                  outra oferta do mesmo imóvel
+                {% endif %}
+              </div>
             {% endif %}
 
             {% if a.detalhe_ok and not a.area_terreno %}
