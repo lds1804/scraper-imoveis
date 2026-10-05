@@ -209,6 +209,96 @@ dado pessoal.
 - **Não** republicar a descrição integral nem o nome/telefone do corretor se um
   dia isso entrar na base.
 
+### 2.6 Uso privado x site público — o texto da lei, lido (2026-10-05)
+
+Leitura direta da Lei 9.610/98 e da Lei 12.965/2014 (texto do Planalto), não
+de memória.
+
+**O dispositivo do uso privado é o art. 46, II:**
+
+> "a reprodução, **em um só exemplar de pequenos trechos**, para **uso privado
+> do copista**, desde que feita por este, **sem intuito de lucro**"
+
+Ele **não encaixa perfeitamente** aqui, e é honesto dizer por quê:
+
+| exigência do inciso | nossa situação |
+|---|---|
+| uso privado do copista | ✅ |
+| feita por este | ✅ (o próprio crawler) |
+| sem intuito de lucro | ✅ |
+| **"em um só exemplar"** | ❌ são **57.402** arquivos |
+| **"pequenos trechos"** | ❌ a foto é a obra **inteira** |
+
+**O argumento mais forte é outro — o art. 46, VIII** (o "fair use" brasileiro),
+que admite **obra integral** quando *"a reprodução em si não seja o objetivo
+principal da obra nova"* e não prejudique a exploração normal. O objetivo deste
+site é a **análise de preço**; a foto é meio, não fim. Esse é o enquadramento
+defensável.
+
+Outros dois pontos que costumam ser esquecidos:
+- **art. 44** — obra fotográfica é protegida por **70 anos** da divulgação.
+- **art. 79, §1º** — *"A fotografia, quando utilizada por terceiros, indicará
+  de forma legível o nome do seu autor."* Exigência legal que **nem os portais
+  cumprem**. Um site que credita está em situação melhor.
+
+#### Por que o uso privado é tranquilo na prática
+
+1. **O site já é local.** `webapp.py` faz `app.run(host="127.0.0.1", ...)` — só
+   a máquina do usuário. Isso **não é "comunicação ao público"** (art. 5º, V:
+   "ato mediante o qual a obra é colocada ao alcance do público"). Se só o dono
+   acessa, o dispositivo nem incide.
+2. **O risco se materializa na divulgação**, não na pesquisa pessoal.
+
+#### Correção de uma afirmação anterior deste plano
+
+A seção 2.4 dizia que "linkar em vez de copiar elimina a maior parte do risco".
+Isso é **direcionalmente certo, mas exagerado**. Linkar **reduz**, não elimina:
+
+- Continua havendo debate sobre se exibir a imagem no contexto da página é
+  "comunicação ao público" (art. 5º, V).
+- **Para direitos autorais a proteção de provedor NÃO se aplica.** O Marco
+  Civil (art. 19, §2º e art. 31) diz que, em matéria autoral, a
+  responsabilidade segue a **lei autoral** — art. 104 fala em
+  **responsabilidade solidária com o contrafator**. O "só responde após ordem
+  judicial" **não** nos protege aqui.
+- E nós seríamos **divulgador direto**, não provedor de conteúdo de terceiro.
+
+#### Ordem de eficácia das mitigações
+
+| # | medida | eficácia |
+|---|---|---|
+| 1 | **Publicar só a ANÁLISE, sem as fotos** | 🥇 muito alta |
+| 2 | Não ser indexado (`noindex`) e não divulgar | alta |
+| 3 | Linkar o CDN em vez de hospedar | média |
+| 4 | Truncar a descrição + link "ver no portal" | média |
+| 5 | Página de *takedown*, atender em 48 h | média |
+| 6 | Crédito do fotógrafo (art. 79, §1º) | baixa, mas é exigência legal |
+
+#### A saída que resolve: publicar o derivado, não o original
+
+**art. 8º** — *"Não são objeto de proteção como direitos autorais... **as
+informações de uso comum**"*.
+**art. 7º, §2º** — a proteção sobre base de dados *"**não abarca os dados ou
+materiais em si mesmos**"*.
+
+Ou seja: **o dado não é protegido; a foto e o texto são.** O ativo real deste
+projeto — "tem quintal, conservação 4/5, está 12% abaixo do preço praticado na
+rua" — é **trabalho próprio sobre fatos**. É isso que sustenta um site público
+defensável: exibir a avaliação e **devolver a imagem a quem a hospeda**, com
+link "ver no portal".
+
+> **Aviso:** não é parecer jurídico. É leitura do texto legal aplicada aos fatos
+> técnicos medidos. O cenário público é o único com risco real — se o plano for
+> divulgá-lo, cabe consulta profissional antes.
+
+#### Recomendação por cenário
+
+| cenário | recomendação |
+|---|---|
+| **Só para você** (hoje) | manter local. Risco baixo, é o cenário que a lei tolera melhor |
+| **Acessar do celular** | **login**, não URL pública. URL não é cadeado: se qualquer um que a ache acessa, já é "ao alcance do público" |
+| **Público de verdade** | publicar **a análise sem as fotos** + link "ver no portal" |
+
 > **Aviso honesto:** não sou advogado e isto não é parecer jurídico. É a leitura
 > dos fatos técnicos medidos. Antes de abrir o site ao público, vale uma
 > consulta — a exposição principal (fotos) tem solução técnica simples
