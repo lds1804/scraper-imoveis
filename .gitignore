@@ -41,6 +41,21 @@ teste_playwright.txt
 duplicatas.csv
 duplicatas.txt
 
+# Saidas dos scripts de medicao (recriaveis). Cada um e' o log de um script
+# que existe no repositorio -- o log nao precisa ser versionado, o script sim.
+saida_*.txt
+sonda.txt
+deploy.txt
+site_db.txt
+custo.txt
+
+# Banco de PRODUCAO gerado por `medir_site_db.py` (subconjunto do imoveis.db).
+# Recriavel a qualquer momento; nao versionar.
+site.db
+
+# Backups locais do banco (o projeto guarda varias copias datadas).
+imoveis_*.db
+
 # ---------------------------------------------------------------------------
 # Python
 # ---------------------------------------------------------------------------
