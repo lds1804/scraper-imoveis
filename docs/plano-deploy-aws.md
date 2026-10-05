@@ -490,6 +490,63 @@ construída.
 > anúncio preenche. Medir nos 929 casos exatos provou em 2 minutos o que 929
 > linhas de "divergente" escondiam.
 
+### ✅ CORRIGIDO (2026-10-05) — e o efeito foi medido
+
+Implementado em `referencia_geosampa.py` (`_casa_com()`) e aplicado na
+interface (`webapp._grau_da_area()`). Nova coluna
+`areas_oficiais.area_casa` diz o que o número do anúncio é; bancos antigos
+se atualizam sozinhos (o `calcular()` faz `ALTER TABLE` se faltar).
+
+**Distribuição nas 3.163 conferências:**
+
+| o número do anúncio é | casos | % |
+|---|---|---|
+| nenhuma das duas — divergência real | 1.329 | 42,0% |
+| construção (o esperado) | 823 | 26,0% |
+| **ambas** (terreno = construção) | 529 | 16,7% |
+| **terreno** | **481** | **15,2%** |
+
+**Efeito nos graus que a tela mostrava:**
+
+| grau | antes | depois | mudança |
+|---|---|---|---|
+| compatível | 1.350 | **1.831** | **+481** |
+| atenção | 665 | 459 | −206 |
+| divergente | 1.147 | 872 | −275 |
+
+**481 casos (15,2%) deixaram de ser acusação falsa** — eram anúncios que
+publicaram o terreno. Antes, o `+233%` que aparecia como "divergente" era
+simplesmente área diferente sendo comparada.
+
+**O que a tela mostra agora**, no caso real (anúncio 175 m², construção 100 m²,
+terreno 175 m²):
+
+> **o anúncio publica a área do TERRENO**
+> *lote exato no cadastro da prefeitura*
+> | | área construída | terreno |
+> |---|---|---|
+> | anúncio | 175 m² | não informado |
+> | cadastro | 100 m² | 175 m² |
+>
+> O anúncio informou **uma** metragem (175 m²) e ela corresponde ao **terreno**
+> do cadastro (175 m²), não à construção (100 m²). A maioria dos portais
+> publica só esse campo — **não é erro do anúncio**, é o dado que ele tem.
+
+E a divergência **real** continua sendo acusada: um anúncio de 85 m² contra
+construção 110 m² (mediana de 71 lotes da rua) segue como `atenção −23%`, com
+o aviso de que cadastro desatualizado é comum.
+
+**Verificação:** `testar_area_casa.py`, **22 verificações** (a função de
+classificação com 6 casos, a zona morta dos dois lados, o grau na interface,
+a coluna preenchida no banco e uma página real renderizada). Confirmado também
+visualmente no navegador nos dois cenários.
+
+> **Nota sobre o teste:** a primeira versão de `testar_area_casa.py` acusou
+> falha em 2 casos que estavam **certos** — eu procurava `"area do TERRENO"`
+> sem acento e não incluí `"sem dado"` na lista de valores válidos. O teste
+> estava errado, não o código. Vale conferir no navegador antes de "corrigir"
+> o que o teste aponta.
+
 > **Aviso honesto:** não sou advogado e isto não é parecer jurídico. É a leitura
 > dos fatos técnicos medidos. Antes de abrir o site ao público, vale uma
 > consulta — a exposição principal (fotos) tem solução técnica simples
