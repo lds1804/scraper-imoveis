@@ -383,6 +383,113 @@ serve obra de terceiro — ele aponta para quem já a publica. Essa combinação
   resolve, mas é obrigatório, não opcional.
 - **Nada foi implantado na AWS.** Isto é o código pronto, não o deploy.
 
+---
+
+## 2.8 Linkar a foto do CDN: medido (2026-10-05)
+
+Testei 490 URLs de foto (120 por portal) **sem Referer**, exatamente como o
+site faria: **490/490 = 100% responderam 200** com `content-type` de imagem
+(`image/jpeg` ou `image/webp`). Tempo: 53 s.
+
+E **nenhuma** URL tem assinatura ou expiração — procurei por `Expires=`,
+`X-Amz-Expires`, `Signature=`, `Policy=`, `token=`, `sig=`, `exp=`,
+`AWSAccessKeyId`: **0 ocorrências**. As query strings são só
+`?isFirstImage=true`. **O link não caduca sozinho.**
+
+### O custo escondido que essa medição NÃO pega
+
+| | hospedada | linkada |
+|---|---|---|
+| Site quebra quando o anúncio sai do ar | não | **sim** |
+| Você armazena obra de terceiro | sim | **não** |
+| Funciona offline | sim | não |
+| Depende do CDN de outro | não | sim |
+
+Quando o imóvel é vendido ou a imobiliária troca a foto, **o site fica com
+imagem quebrada, sem aviso**. E não há como medir quantas quebraram: a tabela
+`anuncios` **não tem data de coleta** — as únicas colunas com data são
+`foto_analisada_em` e `calculado_em` (ambas de processamento, não de coleta).
+
+> Se o modo `link` for para produção, **vale acrescentar `coletado_em`** em
+> `anuncios`. Sem isso não há como saber se um link está velho.
+
+### Sobre a legalidade de linkar
+
+Linkar **melhora a posição** (você não armazena nem serve o arquivo — devolve
+a imagem a quem a publica), mas **não zera** a questão: continua havendo
+exibição da imagem no contexto da sua página, que é o que o art. 5º, V chama
+de comunicação ao público. É uma posição **mais confortável**, não uma
+imunidade. A leitura de 2.6 continua valendo.
+
+### Correção necessária: 10 `.svg` na tabela `fotos`
+
+Há **10 linhas** cujo arquivo é `.svg` — ícone do próprio site (seta do Navent,
+`right-arrow.5c51420c.svg`), baixado por engano como se fosse foto. Afetam 10
+anúncios. `fotos_fonte._e_imagem()` já os descarta na exibição, mas eles
+**contam** em `COUNT(*)` de `fotos` e inflam a lista `fotos_urls` (é a foto
+`\09.svg`, sempre na 9ª posição).
+
+---
+
+## 2.9 🔴 A área do anúncio é frequentemente o TERRENO, não a construção
+
+**Isto é um defeito de medição, não do dado.** Descoberto ao investigar por que
+tantos anúncios apareciam como "divergentes" na conferência de área.
+
+### A prova (929 casos com lote exato, nível `lote`)
+
+O anúncio publica **um** número. Comparei com as duas áreas da prefeitura:
+
+| endereço | anúncio | terreno (pref.) | construída (pref.) |
+|---|---|---|---|
+| Rua Álvares Otero, 37 | **200 m²** | **200 m²** ✅ exato | 60 m² |
+| Rua Itapejara, 86 | **434 m²** | **434 m²** ✅ exato | 145 m² |
+| Rua Aurélia, 1589 | 250 m² | 129 m² | 73 m² |
+
+Sintoma que denunciou: os números do anúncio são **redondos** (200, 240, 250,
+300) — típico de terreno. Construção dá valores quebrados (73, 46, 98).
+
+### A estatística
+
+```
+bate SÓ com a construída :  380  ( 40,9%)
+bate SÓ com o terreno    :  113  ( 12,2%)
+bate com os DOIS (iguais):  149  ( 16,0%)
+não bate com nenhum      :  287  ( 30,9%)
+```
+
+**Hoje só conferimos a construída** (`area_oficial`), então acusamos de
+divergente **43%** (12,2 + 30,9) que podem ser apenas **comparação de áreas
+diferentes** — falso positivo nosso, não mentira do anúncio.
+
+### A causa é estrutural
+
+| fonte | `area_terreno` | `area_construida` |
+|---|---|---|
+| **GeoSampa** (1.627.266 lotes) | **100,0%** | 93,4% |
+| **anúncio** (4.793) | **1,1%** (52) | 99,9% (4.786) |
+
+A prefeitura tem **terreno em 100%** dos lotes; o anúncio quase **não tem esse
+campo**. Então o portal publica a metragem que possui, e nós assumimos que é
+construída.
+
+### O que fazer
+
+1. **A conferência deve testar as duas** e dizer qual casa. Fica muito mais
+   informativo que "divergente":
+   > *"anúncio diz 200 m² · prefeitura: terreno 200 m², construção 60 m² →
+   > o número do anúncio é o **terreno**"*
+2. **`dif_pct` deixa de ser erro** quando a área do anúncio bate com o
+   terreno — passa a ser **classificação**, não divergência.
+3. Rever o threshold `_grau_area()` em `webapp.py`, que hoje assume só
+   construída.
+
+> **Lição de método:** o usuário desconfiou ("o anúncio não publica a área
+> construída do imóvel, publica a área do terreno") e estava certo. O dado
+> sempre esteve no banco — o defeito era **nossa suposição** de qual campo o
+> anúncio preenche. Medir nos 929 casos exatos provou em 2 minutos o que 929
+> linhas de "divergente" escondiam.
+
 > **Aviso honesto:** não sou advogado e isto não é parecer jurídico. É a leitura
 > dos fatos técnicos medidos. Antes de abrir o site ao público, vale uma
 > consulta — a exposição principal (fotos) tem solução técnica simples
