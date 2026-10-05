@@ -165,12 +165,6 @@ def _chips_ativos(filtros: dict) -> list[dict]:
             q["so_arvores"] = "1"
         if filtros.get("so_abaixo") and sem != "so_abaixo":
             q["so_abaixo"] = "1"
-        # o grupo do imóvel visto: o chip "X" remove o filtro e volta à lista.
-        # Não é um filtro que o usuário escolhe na barra — vem do clique no
-        # aviso "+N anúncios deste imóvel" — mas precisa aparecer como chip
-        # para ele saber por que a lista está curta e poder sair.
-        if filtros.get("grupo") and sem != "grupo":
-            q["grupo"] = filtros["grupo"]
         if filtros.get("ordem") and filtros["ordem"] != ORDEM_PADRAO:
             q["ordem"] = filtros["ordem"]
 
@@ -217,11 +211,6 @@ def _chips_ativos(filtros: dict) -> list[dict]:
         chips.append({"rotulo": "com árvores (foto)", "url": base("so_arvores")})
     if filtros.get("so_abaixo"):
         chips.append({"rotulo": "abaixo do preço praticado", "url": base("so_abaixo")})
-    if filtros.get("grupo"):
-        chips.append({
-            "rotulo": "vendo as ofertas de um imóvel",
-            "url": base("grupo"),
-        })
 
     return chips
 
@@ -505,12 +494,6 @@ def index():
     # apareceu 25 vezes). Sem isso a lista repete o mesmo imóvel e o usuário
     # perde tempo relendo. Marcado por padrão; `?todas=1` desliga.
     todas = request.args.get("todas") == "1"
-    # FILTRO POR GRUPO. O aviso "+N anúncios deste imóvel" no card precisa
-    # levar às OUTRAS OFERTAS DAQUELE imóvel. Antes ele ligava `todas=1`,
-    # que mostra a listagem INTEIRA (4.793) em vez do grupo — medido: clicar
-    # levava de 2.938 para 4.793 anúncios, sem aproximar o usuário das
-    # outras ofertas do imóvel clicado.
-    grupo_sel = request.args.get("grupo", "").strip()
     ordem = request.args.get("ordem", "abaixo")
 
     # "abaixo da mediana do ITBI": razão = preço pedido / mediana das
@@ -580,12 +563,10 @@ def index():
     # Quem não está em grupo nenhum (`dup_grupo IS NULL`) continua aparecendo:
     # não ter cópia não é motivo para sumir da lista.
     #
-    # O grupo escolhido no card sobrepõe isso: quando `grupo` vem na URL,
-    # a lista mostra TODAS as ofertas daquele imóvel (é o outro lado do aviso).
-    if grupo_sel.isdigit():
-        sql += " AND a.dup_grupo = ?"
-        params.append(int(grupo_sel))
-    elif tem_dup and not todas:
+    # As cópias NÃO se expandem aqui: elas aparecem na página do anúncio, numa
+    # tabela que compara os preços. Expandir transformaria 1 linha em até 25
+    # cards idênticos — o oposto de ajudar a comparar.
+    if tem_dup and not todas:
         sql += " AND (a.dup_grupo IS NULL OR a.dup_melhor = 1)"
 
     # "abaixo da mediana do ITBI" — o JOIN precisa existir para o filtro valer
@@ -677,10 +658,6 @@ def index():
         d["n_fotos"] = len(fotos)
         d["capa"] = fotos[0] if fotos else None
         d["slug_fotos"] = _slug_fotos(a["url"])
-        # estamos vendo as ofertas de UM imóvel? marca cada card para o
-        # template indicar qual é a mais barata do grupo
-        d["no_grupo_visto"] = bool(grupo_sel) and grupo is not None
-        d["e_o_mais_barato"] = bool(d.get("dup_melhor"))
         cards.append(d)
 
     chips = _chips_ativos(
@@ -695,7 +672,6 @@ def index():
             "piso_quintal": pisos_sel,
             "so_arvores": so_arvores,
             "so_abaixo": so_abaixo,
-            "grupo": grupo_sel,
             "ordem": ordem,
         }
     )
@@ -703,15 +679,6 @@ def index():
 
     # A contagem exibida é o TOTAL filtrado, não o número de cards na página —
     # senão o usuário leria "60 imóveis" tendo 2.127 no resultado.
-    #
-    # `url_sem_grupo` é o link "ver a lista completa" do aviso de grupo:
-    # monta os mesmos filtros sem o `grupo`. Feito aqui (e não com `replace`
-    # no template) porque manipular querystring em Jinja com replaces encadeia
-    # e quebra com `?&` ou `&&`.
-    args_sem_grupo = {k: v for k, v in request.args.to_dict(flat=False).items()
-                      if k != "grupo"}
-    url_sem_grupo = url_for("index", **args_sem_grupo)
-
     return render_template(
         "index.html",
         cards=cards,
@@ -720,7 +687,6 @@ def index():
         n_paginas=n_paginas,
         total_filtrado=total_filtrado,
         por_pagina=POR_PAGINA,
-        url_sem_grupo=url_sem_grupo,
         filtros={
             "bairro": bairros_sel,
             "preco_max": preco_max,
@@ -733,7 +699,6 @@ def index():
             "so_arvores": so_arvores,
             "so_abaixo": so_abaixo,
             "todas": todas,
-            "grupo": grupo_sel,
             "ordem": ordem,
         },
         chips=chips,
@@ -742,6 +707,33 @@ def index():
         tem_dup=tem_dup,
         total=total_filtrado,
     )
+
+
+def _copias_do_anuncio(conn: sqlite3.Connection,
+                       anuncio_url: str,
+                       dup_grupo) -> list[dict]:
+    """As OUTRAS ofertas do mesmo imóvel (o grupo de duplicatas).
+
+    Por que na página do anúncio e não expandindo a lista: a mesma casa é
+    anunciada por várias imobiliárias (medido: um sobrado apareceu 25 vezes).
+    Expandir no card transformaria uma linha em 25 cards iguais, que é o
+    oposto de ajudar a comparar. Aqui fica tudo numa tabela curta — preço,
+    portal e o número de fotos — na ordem do mais barato, que é a pergunta
+    que o usuário realmente tem.
+
+    Devolve sem o próprio anúncio (ele já está na tela).
+    """
+    if dup_grupo is None:
+        return []
+    linhas = conn.execute(
+        """SELECT url, portal, preco, titulo, area_construida, quartos,
+                  dup_melhor, dup_n_fotos
+           FROM anuncios
+           WHERE dup_grupo = ? AND url <> ?
+           ORDER BY dup_melhor DESC, preco ASC""",
+        (dup_grupo, anuncio_url),
+    ).fetchall()
+    return [dict(r) for r in linhas]
 
 
 @app.route("/anuncio/<path:anuncio_url>")
@@ -766,6 +758,9 @@ def detalhe(anuncio_url: str):
     venal = None
     if a is not None and _tem_venais(conn):
         venal = _venais(conn, [anuncio_url]).get(anuncio_url)
+    copias: list[dict] = []
+    if a is not None:
+        copias = _copias_do_anuncio(conn, anuncio_url, a["dup_grupo"])
     conn.close()
     if a is None:
         abort(404)
@@ -776,6 +771,14 @@ def detalhe(anuncio_url: str):
     d["area_of"] = area_of
     d["area_grau"] = _grau_da_area(area_of)
     d["venal"] = venal
+    d["copias"] = copias
+    # o menor preço do grupo (com o próprio anúncio incluído) é a referência
+    # para dizer em quanto ele está acima da oferta mais barata
+    precos = [c["preco"] for c in copias if c["preco"]] + \
+        ([d["preco"]] if d.get("preco") else [])
+    d["grupo_menor_preco"] = min(precos) if precos else None
+    d["grupo_maior_preco"] = max(precos) if precos else None
+    d["grupo_n"] = len(copias) + 1
     d["fotos"] = _fotos_locais(anuncio_url)
     # URLs já prontas (o JS do carrossel usa direto, sem montar caminho)
     d["fotos_web"] = [url_for("foto", caminho=f) for f in d["fotos"]]

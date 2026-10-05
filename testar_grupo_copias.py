@@ -1,10 +1,11 @@
-"""Testa o clique em "+N anuncios deste imovel".
+"""Testa onde as copias do mesmo imovel aparecem.
 
-O DEFEITO: o aviso no card levava para `?todas=1`, que mostra a listagem
-INTEIRA (2.938 -> 4.793 anuncios em vez de 25). O usuario clicava em
-"mais 24 anuncios deste imovel" e caia na mesma lista de antes, maior.
+DECISAO DE PRODUTO: as copias aparecem na PAGINA DO ANUNCIO (tabela com os
+precos de cada imobiliaria), e a LISTAGEM nao se expande.
 
-O ESPERADO: ver AS OUTRAS OFERTAS DAQUELE imovel (o grupo de duplicatas).
+Por que: a mesma casa pode ter 25 anuncios. Expandir na listagem viraria 25
+cards identicos -- o oposto de ajudar a comparar. Numa tabela, os precos
+ficam lado a lado e a diferenca aparece de uma vez.
 
 Uso: python testar_grupo_copias.py
 """
@@ -15,6 +16,7 @@ import os
 import re
 import sqlite3
 import sys
+import urllib.parse
 
 try:
     sys.stdout.reconfigure(errors="replace")
@@ -50,6 +52,12 @@ def get(q: str = "") -> tuple[int, str]:
         return r.status_code, r.get_data(as_text=True)
 
 
+def detalhe(url: str) -> tuple[int, str]:
+    with webapp.app.test_client() as c:
+        r = c.get("/anuncio/" + urllib.parse.quote(url, safe=""))
+        return r.status_code, r.get_data(as_text=True)
+
+
 def total(html: str) -> int:
     m = re.search(r"<b>([\d.]+)</b>\s*imóve", html)
     return int(m.group(1).replace(".", "")) if m else -1
@@ -58,101 +66,119 @@ def total(html: str) -> int:
 conn = sqlite3.connect(config.DB_PATH)
 conn.row_factory = sqlite3.Row
 
-# pega o maior grupo (o caso mais visivel do defeito)
 g = conn.execute("""SELECT dup_grupo g, COUNT(*) n FROM anuncios
                     WHERE dup_grupo IS NOT NULL GROUP BY 1
                     ORDER BY n DESC LIMIT 1""").fetchone()
 GRUPO, N_GRUPO = g["g"], g["n"]
+principal = conn.execute("""SELECT url, preco FROM anuncios
+                            WHERE dup_grupo=? AND dup_melhor=1 LIMIT 1""",
+                         (GRUPO,)).fetchone()
 print(f"grupo de teste: {GRUPO} com {N_GRUPO} anuncios")
+print(f"principal: {principal['url'][:62]}  R$ {principal['preco']:,.0f}")
 conn.close()
 
 print()
 print("=" * 72)
-print("1. O link do aviso aponta para o GRUPO (nao mais para todas=1)")
+print("1. A LISTAGEM nao se expande (1 linha por imovel)")
 print("=" * 72)
 _, home = get()
+t_home = total(home)
+_, todas = get("?todas=1")
+t_todas = total(todas)
+checar("a home mostra 1 linha por imovel", t_home == 2938, f"total={t_home}")
+checar("`?todas=1` continua existindo (opcao da barra)",
+       t_todas == 4793, f"total={t_todas}")
+checar("a home e' menor que a lista com repetidos", t_home < t_todas)
+
+_, html_g = get(f"?grupo={GRUPO}")
+checar("`?grupo=N` nao filtra mais a listagem (ignorado)",
+       total(html_g) == t_home, f"total={total(html_g)}")
+
+print()
+print("=" * 72)
+print("2. O aviso no card leva a PAGINA DO ANUNCIO")
+print("=" * 72)
 m = re.search(r'<a class="card-copias"\s+href="([^"]+)"', home)
-checar("existe o aviso de copias na home", m is not None)
+checar("existe o aviso de copias", m is not None)
 if m:
     link = m.group(1).replace("&amp;", "&")
-    checar("o link NAO usa mais 'todas=1'", "todas=1" not in link, link[:80])
-    checar("o link filtra por 'grupo='", "grupo=" in link, link[:80])
+    checar("o link vai para /anuncio/...", link.startswith("/anuncio/"),
+           link[:70])
+    checar("o link NAO usa 'todas=1'", "todas=1" not in link)
+    checar("o link NAO usa 'grupo='", "grupo=" not in link)
+    checar("o link tem a ancora #ofertas", link.endswith("#ofertas"),
+           link[-20:])
 
 print()
 print("=" * 72)
-print("2. Clicar mostra SO as ofertas daquele imovel")
+print("3. A PAGINA DO ANUNCIO mostra as outras ofertas")
 print("=" * 72)
-code, html_grupo = get(f"?grupo={GRUPO}")
-checar("a pagina do grupo abre", code == 200, f"HTTP {code}")
-t_grupo = total(html_grupo)
-checar(f"o total e' o do grupo ({N_GRUPO}), nao a base inteira",
-       t_grupo == N_GRUPO, f"total={t_grupo}")
-checar("nao mostra os 4.793 da base",
-       t_grupo < 4793, f"total={t_grupo}")
+code, det = detalhe(principal["url"])
+checar("a pagina abre", code == 200, f"HTTP {code}")
+checar("tem o bloco 'Outras ofertas deste imovel'",
+       "Outras ofertas deste imóvel" in det)
+checar("o bloco tem a ancora #ofertas", 'id="ofertas"' in det)
+checar(f"o cabecalho diz o total ({N_GRUPO})", f"{N_GRUPO} no total" in det)
+checar("tem a tabela de ofertas", 'class="ofertas-tabela"' in det)
+checar("o proprio anuncio aparece marcado", "este anúncio" in det)
 
-# confere que todos os cards sao do grupo
-_, home_completa = get("?todas=1")
-checar("o grupo e' menor que a listagem completa",
-       t_grupo < total(home_completa), f"{t_grupo} < {total(home_completa)}")
-
-print()
-print("=" * 72)
-print("3. A pagina explica o contexto e oferece a saida")
-print("=" * 72)
-checar("avisa 'as ofertas deste mesmo imovel'",
-       "ofertas deste mesmo imóvel" in html_grupo)
-checar("tem o link 'ver a lista completa'",
-       "ver a lista completa" in html_grupo)
-checar("tem o chip de filtro ativo",
-       "vendo as ofertas de um imóvel" in html_grupo)
-
-# a URL de saida nao pode conter 'grupo='
-m2 = re.search(r'class="aviso-grupo-voltar"[^>]*href="([^"]+)"', html_grupo)
-if not m2:
-    m2 = re.search(r'href="([^"]+)"[^>]*class="aviso-grupo-voltar"', html_grupo)
-if not m2:
-    m2 = re.search(r'aviso-grupo-voltar[^>]*href="([^"]+)"', html_grupo)
-checar("achei o link de saida", m2 is not None)
-if m2:
-    saida = m2.group(1).replace("&amp;", "&")
-    checar("o link de saida NAO tem 'grupo='", "grupo=" not in saida, saida[:70])
-    code2, html_saida = get(saida.lstrip("/"))
-    checar("o link de saida volta a lista cheia (2.938)",
-           total(html_saida) > t_grupo, f"total={total(html_saida)}")
+n_linhas = len(re.findall(r'class="ofertas-link"', det))
+checar(f"lista as outras {N_GRUPO - 1} ofertas com link",
+       n_linhas == N_GRUPO - 1, f"{n_linhas} links (esperado {N_GRUPO - 1})")
 
 print()
 print("=" * 72)
-print("4. Os cards do grupo mostram qual e' a mais barata")
+print("4. A tabela diz ONDE o anuncio se posiciona no preco")
 print("=" * 72)
-checar("um card diz 'a mais barata'", "a mais barata" in html_grupo)
-checar("outros dizem quanto estao acima dela",
-       "acima da mais barata" in html_grupo
-       or N_GRUPO == 1)
-# nao deve haver o aviso clicavel de copias dentro da visao de grupo
-n_link = len(re.findall(r'class="card-copias"', html_grupo))
-checar("sem aviso de copias clicavel dentro do grupo",
-       n_link == 0, f"{n_link} encontrados")
-n_selo = len(re.findall(r'class="card-copias no-grupo"', html_grupo))
-checar("com selo de grupo nos cards", n_selo > 0, f"{n_selo} selos")
+checar("explica a faixa de preco (ou o empate)",
+       "de diferença" in det or "mesmo preço" in det)
+checar("marca a mais barata na tabela", "mais barata" in det)
+checar("a nota explica que sao copias de imobiliarias",
+       "imobiliárias diferentes" in det)
+# 24 dos 25 tem o MESMO preco: marcar todos como "mais barata" seria 24 selos
+# identicos e zero informacao. O selo tem de aparecer UMA vez.
+n_selos = len(re.findall(r'class="ofertas-menor"', det))
+checar("o selo 'mais barata' aparece UMA vez so", n_selos == 1,
+       f"{n_selos} selos")
 
 print()
 print("=" * 72)
-print("5. Os filtros continuam funcionando junto com o grupo")
+print("5. Anuncio SEM copia nao mostra o bloco")
 print("=" * 72)
-# grupo + bairro: o filtro do grupo sobrevive
-code3, html_f = get(f"?grupo={GRUPO}&bairro=Pirituba")
-checar("grupo + bairro nao da erro", code3 == 200, f"HTTP {code3}")
-checar("o grupo sobrevive ao filtro de bairro",
-       "vendo as ofertas de um imóvel" in html_f)
+conn = sqlite3.connect(config.DB_PATH)
+conn.row_factory = sqlite3.Row
+sozinho = conn.execute("""SELECT url FROM anuncios
+                          WHERE dup_grupo IS NULL LIMIT 1""").fetchone()
+if sozinho:
+    code3, det3 = detalhe(sozinho["url"])
+    checar("anuncio sem copia abre", code3 == 200, f"HTTP {code3}")
+    checar("nao mostra o bloco de ofertas",
+           "Outras ofertas deste imóvel" not in det3)
 
-# grupo invalido nao quebra
-code4, html_x = get("?grupo=999999")
-checar("grupo inexistente nao da erro", code4 == 200, f"HTTP {code4}")
-checar("grupo inexistente mostra 0", total(html_x) == 0,
-       f"total={total(html_x)}")
-code5, _ = get("?grupo=abc")
-checar("grupo nao numerico e' ignorado (nao quebra)", code5 == 200,
-       f"HTTP {code5}")
+g2 = conn.execute("""SELECT dup_grupo g FROM anuncios
+                     WHERE dup_grupo IS NOT NULL GROUP BY 1
+                     HAVING COUNT(*)=2 LIMIT 1""").fetchone()
+if g2:
+    u2 = conn.execute("""SELECT url FROM anuncios WHERE dup_grupo=?
+                         AND dup_melhor=1 LIMIT 1""", (g2["g"],)).fetchone()
+    code4, det4 = detalhe(u2["url"])
+    checar("grupo de 2 abre", code4 == 200, f"HTTP {code4}")
+    checar("grupo de 2 mostra 1 outra oferta",
+           len(re.findall(r'class="ofertas-link"', det4)) == 1)
+    checar("grupo de 2 diz '2 no total'", "2 no total" in det4)
+
+# grupo com variacao real de preco
+gv = conn.execute("""SELECT dup_grupo g FROM anuncios
+                     WHERE dup_grupo IS NOT NULL
+                     GROUP BY 1 HAVING MAX(preco) > MIN(preco) * 1.05
+                     LIMIT 1""").fetchone()
+if gv:
+    uv = conn.execute("""SELECT url FROM anuncios WHERE dup_grupo=?
+                         AND dup_melhor=1 LIMIT 1""", (gv["g"],)).fetchone()
+    _, det5 = detalhe(uv["url"])
+    checar("grupo com variacao mostra a faixa de precos",
+           "de diferença" in det5, "mostrou faixa")
+conn.close()
 
 print()
 print("=" * 72)

@@ -552,42 +552,74 @@ a { color: inherit; }
 .card-copias:hover { background: #dce7f6; border-color: var(--accent); }
 .card-copias .ico { width: 13px; height: 13px; opacity: .85; }
 
-/* Quando a lista JÁ mostra as ofertas do mesmo imóvel, este bloco não é mais
-   um link: vira um selo estático dizendo qual é a mais barata (a informação
-   que decide a compra). Por isso não tem hover nem cor de link. */
-.card-copias.no-grupo {
+/* ---------- tabela "outras ofertas deste imóvel" (página do anúncio) ---------- */
+/* Compara os preços da MESMA casa em imobiliárias diferentes. É o lugar certo
+   para isso: na listagem, 25 cópias de um imóvel virariam 25 cards iguais. */
+.bloco-contagem {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  background: var(--fundo-2, #eef1f6);
   color: var(--texto-2);
-  background: var(--fundo-2, #f4f6f9);
-  border-color: var(--linha);
-  cursor: default;
+  font-size: .72rem; font-weight: 600;
+  vertical-align: middle;
+}
+.ofertas-tabela {
+  width: 100%;
+  margin-top: 10px;
+  border-collapse: collapse;
+  font-size: .84rem;
+}
+.ofertas-tabela th {
+  text-align: left;
+  padding: 6px 10px;
+  color: var(--muted, var(--texto-2));
+  font-size: .72rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .03em;
+  border-bottom: 1px solid var(--linha);
+}
+.ofertas-tabela td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--linha);
+  color: var(--texto-2);
+}
+.ofertas-tabela tbody tr:last-child td { border-bottom: none; }
+.ofertas-tabela tbody tr:hover td { background: var(--fundo-2, #f7f9fc); }
+
+/* a linha do anúncio QUE ESTÁ ABERTO, para o usuário ver onde ele se posiciona */
+.ofertas-atual td {
+  background: var(--accent-claro);
+  color: var(--texto);
   font-weight: 500;
 }
-.card-copias.no-grupo b { color: var(--verde); font-weight: 700; }
-
-/* ---------- aviso "vendo as ofertas de um imóvel" ---------- */
-/* Aparece acima da contagem quando a URL traz `?grupo=N`. Explica por que a
-   lista está curta e oferece a saída — sem isto o usuário fica sem entender
-   o que mudou ao clicar no aviso de cópias. */
-.aviso-grupo {
-  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
-  margin: 0 0 10px;
-  padding: 10px 13px;
-  background: var(--accent-claro);
-  border: 1px solid #ccd9ea;
-  border-left: 3px solid var(--accent);
-  border-radius: var(--r-sm);
-  font-size: .82rem;
-  color: var(--texto-2);
-}
-.aviso-grupo .ico { width: 15px; height: 15px; color: var(--accent); flex: none; }
-.aviso-grupo-voltar {
-  margin-left: auto;
+.ofertas-atual:hover td { background: var(--accent-claro) !important; }
+.ofertas-voce {
   color: var(--accent);
-  font-weight: 600;
+  font-size: .74rem; font-weight: 600;
+  white-space: nowrap;
+}
+.ofertas-menor {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--r-full);
+  background: var(--verde-claro, #e3f3ea);
+  color: var(--verde);
+  font-size: .68rem; font-weight: 700;
+  white-space: nowrap;
+}
+.ofertas-acima {
+  margin-left: 6px;
+  color: var(--quente);
+  font-size: .76rem; font-weight: 600;
+  white-space: nowrap;
+}
+.ofertas-link {
+  color: var(--accent);
+  font-size: .76rem; font-weight: 600;
   text-decoration: none;
   white-space: nowrap;
 }
-.aviso-grupo-voltar:hover { text-decoration: underline; }
+.ofertas-link:hover { text-decoration: underline; }
 
 /* ---------- análise visual das fotos (IA) ---------- */
 /* Bloco que separa o que foi LIDO DO TEXTO do que foi VISTO NA FOTO.

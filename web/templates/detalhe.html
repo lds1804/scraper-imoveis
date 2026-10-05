@@ -195,6 +195,120 @@
         </div>
       {% endif %}
 
+      {% if a.grupo_n > 1 %}
+        {# A MESMA casa anunciada por várias imobiliárias. Medido: um sobrado
+           de 108 m² em Vila Bonilha apareceu 25 vezes (4 no ZAP + 21 na OLX),
+           sempre a R$ 470.000.
+
+           Fica AQUI (na página do anúncio) e não expandindo a listagem: no
+           card, "+24 anúncios deste imóvel" viraria 25 cards idênticos. Numa
+           tabela curta, com o preço de cada portal, a informação aparece de
+           uma vez e dá para comparar.
+
+           A ordem é do mais barato para o mais caro — é o que decide a
+           compra. Alguns grupos têm quase todos no mesmo preço (medido: 24
+           de 25 no maior), então a frase do topo só fala em diferença de
+           preço quando ela realmente existe. #}
+        <div class="bloco" id="ofertas">
+          <h2 class="bloco-titulo">
+            {{ ic.icone('copias') }} Outras ofertas deste imóvel
+            <span class="bloco-contagem">{{ a.grupo_n }} no total</span>
+          </h2>
+
+          {% if a.grupo_menor_preco and a.grupo_maior_preco
+                and a.grupo_maior_preco > a.grupo_menor_preco %}
+            <p class="bloco-nota">
+              Os preços deste imóvel vão de
+              <b>{{ a.grupo_menor_preco | moeda }}</b> a
+              <b>{{ a.grupo_maior_preco | moeda }}</b>
+              ({{ ((a.grupo_maior_preco / a.grupo_menor_preco - 1) * 100)
+                   | round(0) | int }}% de diferença).
+              As imobiliárias anunciam a mesma casa por valores diferentes —
+              é margem para negociar.
+            </p>
+          {% else %}
+            <p class="bloco-nota">
+              Todas as ofertas deste imóvel estão pelo <b>mesmo preço</b>
+              ({{ a.grupo_menor_preco | moeda }}). O que muda é a imobiliária
+              — o valor está firme.
+            </p>
+          {% endif %}
+
+          <table class="ofertas-tabela">
+            <thead>
+              <tr>
+                <th>preço</th>
+                <th>portal</th>
+                <th>constr.</th>
+                <th>quartos</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {# O selo "mais barata" aparece UMA vez só. Medido no maior grupo:
+                 24 dos 25 anúncios têm exatamente o mesmo preço, então marcar
+                 cada um deles como "mais barata" seria 24 selos idênticos e
+                 nenhuma informação. A tabela já está ordenada do menor para o
+                 maior preço, então o primeiro é a referência. #}
+              {% set ja_marcou = namespace(menor=false) %}
+              {% if a.preco and a.grupo_menor_preco
+                    and a.preco == a.grupo_menor_preco %}
+                {% set ja_marcou.menor = true %}
+              {% endif %}
+
+              {# a linha do anúncio que está aberto, para o usuário ver onde
+                 ele se posiciona na faixa #}
+              <tr class="ofertas-atual">
+                <td>
+                  <b>{{ a.preco | moeda }}</b>
+                  {% if a.grupo_menor_preco and a.preco
+                        and a.preco > a.grupo_menor_preco %}
+                    <span class="ofertas-acima">
+                      +{{ ((a.preco / a.grupo_menor_preco - 1) * 100)
+                          | round(0) | int }}%
+                    </span>
+                  {% elif ja_marcou.menor %}
+                    <span class="ofertas-menor">mais barata</span>
+                  {% endif %}
+                </td>
+                <td>{{ a.portal }}</td>
+                <td>{{ a.area_construida | m2 }}</td>
+                <td>{{ a.quartos or '—' }}</td>
+                <td class="ofertas-voce">este anúncio</td>
+              </tr>
+              {% for c in a.copias %}
+                <tr>
+                  <td>
+                    {{ c.preco | moeda }}
+                    {% if c.preco and a.grupo_menor_preco
+                          and c.preco == a.grupo_menor_preco
+                          and not ja_marcou.menor %}
+                      {% set ja_marcou.menor = true %}
+                      <span class="ofertas-menor">mais barata</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ c.portal }}</td>
+                  <td>{{ c.area_construida | m2 }}</td>
+                  <td>{{ c.quartos or '—' }}</td>
+                  <td>
+                    <a class="ofertas-link" href="{{ url_for('detalhe', anuncio_url=c.url) }}"
+                       title="{{ c.titulo or 'ver este anúncio' }}">
+                      ver anúncio
+                    </a>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+
+          <p class="bloco-nota">
+            São cópias do mesmo imóvel publicadas por imobiliárias diferentes,
+            agrupadas pela semelhança das fotos. Confira a documentação antes
+            de fechar: o mesmo corretor pode ter mais de um anúncio ativo.
+          </p>
+        </div>
+      {% endif %}
+
       {% if a.foto_ok %}
         <div class="bloco">
           <h2 class="bloco-titulo">{{ ic.icone('olho') }} O que as fotos mostram</h2>
