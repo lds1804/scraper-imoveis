@@ -316,12 +316,48 @@ No cenário de R$ 29,04:
 | 3 | **Off-peak sempre** (01–04h e 06–10h UTC) | −50% | nenhum, só agendar |
 | 4 | **Teto de fotos** (`VISAO_MAX_FOTOS`) + amostragem | corta 45% das fotos | já existe `_amostrar_fotos`; a ordem da galeria põe quintal no fim, então a amostragem **é melhor** que as N primeiras |
 | 5 | **Não reanalisar o que já foi analisado** | essencial no diário | nenhum |
-| 6 | **Deduplicar foto por hash local** antes de enviar | 2% literal | pouco ganho — **não vale** o esforço |
+| 6 | Deduplicar foto repetida antes de enviar | **0,6%** (medido) | não compensa — ver 4.2.1 |
 
 **Recomendação:** ligar 1, 3, 4 e 5 agora (risco zero, leva de R$ 29,04 para
 ~R$ 12). Deixar o `detail` como está até **medir** `low` vs `original` num
 conjunto com verdade conhecida — o comentário do código já avisa que nunca foi
 comparado.
+
+#### 4.2.1 Fotos repetidas: medido, e o número é pequeno
+
+Antes de otimizar, medi se foto repetida compensa — com **md5 dos bytes reais**
+de todos os 57.392 arquivos (63 s de leitura de disco), não por semelhança.
+
+| medida | valor |
+|---|---|
+| imagens distintas (md5 únicos) | **55.104** de 57.392 |
+| fotos repetidas na base | **2.288 (4,0%)** |
+| fotos repetidas **dentro do mesmo anúncio** | **318 em 138 anúncios** |
+| economia no envio ao modelo, deduplicando | **318 fotos = 0,6%** |
+
+**Por que o ganho é tão pequeno:** o modelo **precisa** analisar a mesma
+imagem em anúncios diferentes (são imóveis distintos que por acaso usam a
+mesma foto). E das repetidas, a maioria **nem é foto de imóvel**:
+
+```
+   34x em 34 anúncios | 1200x330px | 41 KB   <- formato de BANNER
+   33x em 33 anúncios | 601x900px  | 85 KB
+   33x em 33 anúncios | 894x900px  | 69 KB
+   ...todas aparecendo em 20 a 34 BAIRROS E RUAS DIFERENTES
+```
+
+Uma imagem que aparece em 32 ruas distintas **não é a mesma casa** — é imagem
+genérica da imobiliária (o mesmo falso positivo já documentado no pHash).
+Total: 957 linhas (1,7%) em imagens repetidas em 3+ anúncios.
+
+**Conclusão:** dedup por md5 custa 63 s de leitura, exige mais uma coluna em
+`fotos` e economiza 0,6% — **não vale**. O ganho está em não reenviar a mesma
+casa 25 vezes (alavanca 1), que é duplicata de **anúncio**, não de foto.
+
+> **Nota de método:** o banco **não guarda** hash de foto (`fotos` é só
+> `id, anuncio_url, foto_url, arquivo_local`); o pHash é recalculado a cada
+> execução de `achar_duplicatas.py`. Se um dia valer evitar esse recálculo
+> (~11 min), é ali que se grava — mas por 0,6% não se paga.
 
 ### 4.3 Guard-rails (o que impede o gasto descontrolado)
 
