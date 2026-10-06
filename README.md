@@ -177,9 +177,18 @@ venal, cadastral area). Steps that fail are reported and the rest go on:
 ```bash
 caca-atualizar                       # daily
 caca-atualizar --completo            # monthly: new ITBI sheets, model refits, yearly IPTU
+caca-atualizar --sem-imovelweb       # skip Imovelweb (browser-based; Cloudflare may block)
 caca-atualizar --provedor deepseek   # photo analysis through the DeepSeek API
 caca-atualizar --listar              # show the plan only
 ```
+
+**Imovelweb** is in the daily run. It is the only portal that needs a real
+browser (plain HTTP gets a Cloudflare 403), so it can be blocked: after 3
+blocked page opens in a row the collection stops, keeps what it already saved,
+and the step is reported as failed with the fix (`caca-imovelweb --dry-run`,
+solve the challenge in the window once, run again). The other steps go on.
+Its detail-page step only visits Imovelweb ads (the other portals already come
+complete from their APIs).
 
 **Photo analysis** runs through the Claude Code CLI by default (`claude -p`,
 using the subscription that is logged in on this machine — run `claude` once

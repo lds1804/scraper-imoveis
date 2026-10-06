@@ -16,6 +16,7 @@ from playwright.sync_api import sync_playwright
 
 from cacaimoveis import config
 from cacaimoveis.scraper_browser import (
+    CloudflareBloqueou,
     _e_challenge,
     atende_preco,
     calcular_match_quintal,
@@ -99,72 +100,85 @@ def dry_run(alvos: list[str] | None = None) -> None:
         ctx.close()
 
 
-def rodar(alvos: list[str] | None = None) -> None:
+def rodar(alvos: list[str] | None = None) -> int:
     selecionados = _filtrar_bairros(alvos)
     if not selecionados:
         print("Nenhum bairro para coletar.")
-        return
+        return 0
 
     db = DB()
     print(f"Banco: {config.DB_PATH} (já tem {db.total()} anúncios)")
     print(f"Bairros a coletar: {len(selecionados)}")
 
-    novos = 0
-    descartados_tipo = 0
+    bloqueado = False
     with sync_playwright() as p:
         ctx = _abrir_contexto(p)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
 
-        for bairro in selecionados:
-            print(f"\n{'=' * 60}\nBAIRRO: {bairro.nome}\n{'=' * 60}")
-            for anuncio in coletar_bairro(page, bairro):
-                if db.existe(anuncio.url):
-                    print(f"  [pulado] já salvo: {anuncio.url}")
-                    continue
-
-                # rede de segurança: nunca salvar anúncio de outra cidade
-                if not e_de_sao_paulo(anuncio):
-                    print(f"  [fora de SP] descartado: {anuncio.endereco}")
-                    continue
-
-                # e nunca de um bairro que não está na lista-alvo
-                ok, nome = e_bairro_alvo(anuncio)
-                if not ok:
-                    print(f"  [bairro fora da lista] descartado: {nome}")
-                    continue
-
-                # rede de segurança: a URL já pede /casas-venda-, mas se o
-                # site devolver apartamento, não entra
-                if not e_casa(anuncio):
-                    print(f"  [não é casa] descartado: {anuncio.titulo[:40]}")
-                    descartados_tipo += 1
-                    continue
-
-                calcular_match_quintal(anuncio)
-
-                if not atende_preco(anuncio):
-                    print(f"  [acima do preço] R$ {anuncio.preco} | {anuncio.url}")
-                    continue
-
-                db.salvar_anuncio(anuncio)
-                novos += 1
-                n = baixar_fotos(anuncio, ctx.request, db)
-                print(
-                    f"  [salvo] {anuncio.titulo[:40]!r} | R$ {anuncio.preco} | "
-                    f"quintal={anuncio.match_quintal}({anuncio.score_quintal}) | {n} fotos"
-                )
-
+        try:
+            _coletar(selecionados, page, ctx, db)
+        except CloudflareBloqueou as e:
+            bloqueado = True
+            print(f"\n[cloudflare] {e}. Coleta do Imovelweb interrompida.")
+            print("  O que já foi salvo fica no banco. Abra `caca-imovelweb --dry-run` "
+                  "para resolver o desafio na janela e rode de novo.")
         ctx.close()
+
+    print(f"\n{'=' * 60}")
+    print(f"Total no banco: {db.total()} anúncios")
+    db.close()
+    return 3 if bloqueado else 0
+
+
+def _coletar(selecionados, page, ctx, db) -> None:
+    novos = 0
+    descartados_tipo = 0
+    for bairro in selecionados:
+        print(f"\n{'=' * 60}\nBAIRRO: {bairro.nome}\n{'=' * 60}")
+        for anuncio in coletar_bairro(page, bairro):
+            if db.existe(anuncio.url):
+                print(f"  [pulado] já salvo: {anuncio.url}")
+                continue
+
+            # rede de segurança: nunca salvar anúncio de outra cidade
+            if not e_de_sao_paulo(anuncio):
+                print(f"  [fora de SP] descartado: {anuncio.endereco}")
+                continue
+
+            # e nunca de um bairro que não está na lista-alvo
+            ok, nome = e_bairro_alvo(anuncio)
+            if not ok:
+                print(f"  [bairro fora da lista] descartado: {nome}")
+                continue
+
+            # rede de segurança: a URL já pede /casas-venda-, mas se o
+            # site devolver apartamento, não entra
+            if not e_casa(anuncio):
+                print(f"  [não é casa] descartado: {anuncio.titulo[:40]}")
+                descartados_tipo += 1
+                continue
+
+            calcular_match_quintal(anuncio)
+
+            if not atende_preco(anuncio):
+                print(f"  [acima do preço] R$ {anuncio.preco} | {anuncio.url}")
+                continue
+
+            db.salvar_anuncio(anuncio)
+            novos += 1
+            n = baixar_fotos(anuncio, ctx.request, db)
+            print(
+                f"  [salvo] {anuncio.titulo[:40]!r} | R$ {anuncio.preco} | "
+                f"quintal={anuncio.match_quintal}({anuncio.score_quintal}) | {n} fotos"
+            )
 
     print(f"\n{'=' * 60}")
     print(f"Novos anúncios salvos: {novos}")
     if descartados_tipo:
         print(f"Descartados (não-casa): {descartados_tipo}")
-    print(f"Total no banco: {db.total()} anúncios")
-    db.close()
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description="Scraper Imovelweb (Playwright)")
     parser.add_argument("--dry-run", action="store_true", help="Só testa, não salva")
     parser.add_argument("--listar", action="store_true", help="Lista os bairros e sai")
@@ -181,13 +195,14 @@ def main() -> None:
     elif args.dry_run:
         dry_run(args.bairros)
     else:
-        rodar(args.bairros)
+        return rodar(args.bairros)
+    return 0
 
 
 if __name__ == "__main__":
     try:
-        main()
+        sys.exit(main())
     except KeyboardInterrupt:
         print("\nInterrompido pelo usuário.")
-        sys.exit(0)
+        sys.exit(130)
 

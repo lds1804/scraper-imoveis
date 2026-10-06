@@ -234,6 +234,12 @@ DELAY_MAX = 8.0
 # Número máximo de tentativas por requisição
 MAX_RETRIES = 3
 
+# Quantas aberturas de página seguidas bloqueadas pelo Cloudflare encerram a
+# coleta do Imovelweb. Cada abertura já tenta MAX_RETRIES vezes (~4 min); sem
+# este limite, um bloqueio rendia mais de uma hora de espera para 18 bairros
+# sem coletar nada. A coleta para, guarda o que já veio e sai com código 3.
+IMOVELWEB_MAX_BLOQUEIOS = 3
+
 # Tempo máximo de espera para o desafio anti-bot (Cloudflare) resolver
 CHALLENGE_TIMEOUT_MS = 25_000
 

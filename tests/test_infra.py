@@ -166,3 +166,45 @@ def test_foto_404_marca_o_anuncio_como_removido(tmp_path, monkeypatch):
     assert baixados == ["vivo"]
     assert db.conn.execute("SELECT removido_em FROM anuncios WHERE url='morto'").fetchone()[0]
     db.close()
+
+
+# ---------------------------------------------------------------------------
+# Imovelweb: bloqueio do Cloudflare e filtro por portal
+# ---------------------------------------------------------------------------
+def test_disjuntor_para_depois_de_aberturas_seguidas_bloqueadas(monkeypatch):
+    from cacaimoveis import scraper_browser as sb
+
+    class Pagina:
+        def goto(self, *a, **k):
+            return types.SimpleNamespace(status=403)
+
+        def title(self):
+            return "Just a moment..."
+
+        def wait_for_timeout(self, ms):
+            pass
+
+    import types
+
+    monkeypatch.setattr(sb.time, "sleep", lambda s: None)
+    monkeypatch.setattr(sb, "_e_challenge", lambda page: True)
+    monkeypatch.setattr(sb, "_bloqueios_seguidos", 0)
+    monkeypatch.setattr(config, "MAX_RETRIES", 1)
+    limite = config.IMOVELWEB_MAX_BLOQUEIOS
+    for _ in range(limite - 1):
+        assert sb._abrir_pagina_listagem(Pagina(), "http://x") is None
+    with pytest.raises(sb.CloudflareBloqueou):
+        sb._abrir_pagina_listagem(Pagina(), "http://x")
+
+
+def test_pendentes_de_detalhe_so_do_portal_pedido(tmp_path):
+    from cacaimoveis import storage
+
+    db = storage.DB(str(tmp_path / "t.db"))
+    for url, portal in [("a", "imovelweb"), ("b", "zap"), ("c", "olx"), ("d", "imovelweb")]:
+        db.conn.execute("INSERT INTO anuncios (url, portal) VALUES (?, ?)", (url, portal))
+    db.conn.execute("UPDATE anuncios SET removido_em = 'x' WHERE url = 'd'")
+    db.conn.commit()
+    assert [r["url"] for r in db.pendentes_detalhe(portal="imovelweb")] == ["a"]
+    assert len(db.pendentes_detalhe()) == 3     # sem filtro: todos, menos o removido
+    db.close()

@@ -8,7 +8,7 @@ from cacaimoveis import atualizar
 
 
 def _args(**kw):
-    base = dict(completo=False, imovelweb=False, provedor="claude", teto=20.0,
+    base = dict(completo=False, imovelweb=True, provedor="claude", teto=20.0,
                 limite_visao=0, max_paginas=0, so=None, pular=None)
     base.update(kw)
     return argparse.Namespace(**base)
@@ -20,7 +20,7 @@ def _plano(**kw):
 
 
 def test_plano_diario_na_ordem_certa():
-    assert _plano() == ["backup", "coleta", "fotos", "duplicatas", "endereco",
+    assert _plano() == ["backup", "imovelweb", "coleta", "fotos", "duplicatas", "endereco",
                         "visao", "itbi", "venal", "venal-iptu", "area"]
 
 
@@ -30,9 +30,36 @@ def test_completo_inclui_as_mensais_antes_da_comparacao():
     assert p.index("iptu") < p.index("venal-iptu")
 
 
-def test_imovelweb_so_quando_pedido():
-    assert "imovelweb" not in _plano()
-    assert _plano(imovelweb=True).index("imovelweb") < _plano(imovelweb=True).index("fotos")
+def test_imovelweb_esta_no_diario_e_pode_ser_desligado(tmp_path, monkeypatch, capsys):
+    assert _plano().index("imovelweb") < _plano().index("coleta")
+    assert "imovelweb" not in _plano(imovelweb=False)
+    # a flag da linha de comando chega até o plano
+    atualizar.main(["--listar", "--sem-imovelweb"])
+    assert "imovelweb " not in capsys.readouterr().out.split("Plano:")[1]
+
+
+def test_etapa_imovelweb_so_visita_detalhe_com_parada_por_bloqueio():
+    args = _args()
+    (etapa,) = [e for e in atualizar.montar_etapas(args) if e.nome == "imovelweb"]
+    assert etapa.comandos == [["main"], ["enriquecer_detalhes", "--parar-apos", "5"]]
+
+
+def test_cloudflare_aparece_com_instrucao_e_nao_para_o_resto(monkeypatch, tmp_path):
+    monkeypatch.setattr(atualizar, "TRAVA", str(tmp_path / "trava"))
+    rodadas = []
+
+    def falso(cmd):
+        rodadas.append(cmd[0])
+        return 3 if cmd[0] == "main" else 0
+
+    monkeypatch.setattr(atualizar, "_rodar_modulo", falso)
+    etapa = [e for e in atualizar.montar_etapas(_args()) if e.nome == "imovelweb"][0]
+    situacao, detalhe = atualizar.rodar(etapa, _args())
+    assert situacao == "falhou" and "Cloudflare" in detalhe and "--dry-run" in detalhe
+    # sem a coleta, os detalhes não rodam (o bloqueio vale para os dois)
+    assert rodadas == ["main"]
+    assert atualizar.main(["--so", "imovelweb", "venal"]) == 1
+    assert rodadas[-1] == "valor_venal"
 
 
 def test_so_e_pular():

@@ -109,7 +109,7 @@ def _carregar_pagina(page, url: str) -> str | None:
     return None
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description="Enriquece anúncios via página de detalhe")
     parser.add_argument("--todos", action="store_true", help="inclui os que já têm terreno")
     parser.add_argument("--refazer", action="store_true", help="ignora a marca detalhe_ok")
@@ -122,11 +122,20 @@ def main() -> None:
     parser.add_argument("--delay-min", type=float, default=None, help="intervalo mínimo entre páginas")
     parser.add_argument("--delay-max", type=float, default=None, help="intervalo máximo entre páginas")
     parser.add_argument(
+        "--portal", default="imovelweb",
+        help="só os anúncios deste portal (padrão: imovelweb, o único cujas páginas "
+             "este script sabe ler); 'todos' desliga o filtro")
+    parser.add_argument(
+        "--parar-apos", type=int, default=0, metavar="N",
+        help="desiste (código 3) depois de N falhas seguidas, em vez de esfriar e "
+             "insistir; use em execuções sem ninguém olhando")
+    parser.add_argument(
         "--sem-fotos",
         action="store_true",
         help="não baixar as galerias completas de fotos",
     )
     args = parser.parse_args()
+    portal = None if args.portal == "todos" else args.portal
 
     delay_min = args.delay_min if args.delay_min is not None else config.DELAY_MIN
     delay_max = args.delay_max if args.delay_max is not None else config.DELAY_MAX
@@ -136,7 +145,7 @@ def main() -> None:
         db.conn.execute("UPDATE anuncios SET detalhe_ok = 0")
         db.conn.commit()
 
-    pendentes = db.pendentes_detalhe(somente_sem_terreno=not args.todos)
+    pendentes = db.pendentes_detalhe(somente_sem_terreno=not args.todos, portal=portal)
     if args.limite:
         pendentes = pendentes[: args.limite]
 
@@ -146,10 +155,11 @@ def main() -> None:
     if not pendentes:
         print("Nada a fazer. Use --refazer para reprocessar tudo.")
         db.close()
-        return
+        return 0
 
     n_terreno = n_banh = n_ok = n_falha = n_fotos = 0
     falhas_seguidas = 0
+    bloqueado = False
 
     with sync_playwright() as p:
         ctx = _abrir_contexto(p, headless=args.headless)
@@ -169,6 +179,12 @@ def main() -> None:
                     n_falha += 1
                     falhas_seguidas += 1
                     print("    [falhou] mantido pendente para a próxima execução")
+
+                    if args.parar_apos and falhas_seguidas >= args.parar_apos:
+                        bloqueado = True
+                        print(f"    [cloudflare] {falhas_seguidas} falhas seguidas: "
+                              "desistindo desta rodada (o resto fica pendente).")
+                        break
 
                     # Bloqueio persistente: esfria bastante antes de continuar
                     if falhas_seguidas >= 3:
@@ -222,8 +238,10 @@ def main() -> None:
     print(f"Terreno preenchido      : {n_terreno}")
     print(f"Banheiros preenchidos   : {n_banh}")
     print(f"Fotos baixadas          : {n_fotos}")
-    print(f"Restantes pendentes     : {len(db.pendentes_detalhe(somente_sem_terreno=not args.todos))}")
+    print("Restantes pendentes     : "
+          f"{len(db.pendentes_detalhe(somente_sem_terreno=not args.todos, portal=portal))}")
     db.close()
+    return 3 if bloqueado else 0
 
 
 if __name__ == "__main__":

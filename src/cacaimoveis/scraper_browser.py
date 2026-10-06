@@ -992,6 +992,14 @@ def _e_challenge(page) -> bool:
     return any(s in title for s in sinais)
 
 
+class CloudflareBloqueou(RuntimeError):
+    """O Cloudflare barrou várias aberturas seguidas: insistir não adianta."""
+
+
+# aberturas de listagem bloqueadas desde o último sucesso
+_bloqueios_seguidos = 0
+
+
 def _abrir_pagina_listagem(page, url: str) -> str | None:
     """Abre a URL de listagem tratando o Cloudflare. Devolve o HTML ou None."""
     resp = None
@@ -1010,12 +1018,18 @@ def _abrir_pagina_listagem(page, url: str) -> str | None:
 
         if resp and resp.status < 400 and not _e_challenge(page):
             page.wait_for_timeout(3000)
+            global _bloqueios_seguidos
+            _bloqueios_seguidos = 0
             return page.content()
 
         status = resp.status if resp else "?"
         print(f"  [tentativa {tentativa}] status {status}, retry...")
         page.wait_for_timeout(5000)
 
+    _bloqueios_seguidos += 1
+    if _bloqueios_seguidos >= config.IMOVELWEB_MAX_BLOQUEIOS:
+        raise CloudflareBloqueou(
+            f"{_bloqueios_seguidos} aberturas seguidas bloqueadas pelo Cloudflare")
     return None
 
 

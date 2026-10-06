@@ -414,13 +414,25 @@ class DB:
         sql += " ORDER BY rowid"
         return self.conn.execute(sql).fetchall()
 
-    def pendentes_detalhe(self, somente_sem_terreno: bool = True) -> list[sqlite3.Row]:
-        """Anúncios que ainda não tiveram a página individual visitada."""
-        sql = "SELECT * FROM anuncios WHERE COALESCE(detalhe_ok, 0) = 0"
+    def pendentes_detalhe(self, somente_sem_terreno: bool = True,
+                          portal: str | None = None) -> list[sqlite3.Row]:
+        """Anúncios que ainda não tiveram a página individual visitada.
+
+        `portal` restringe a um portal. Sem isso a etapa de detalhes
+        (que só sabe ler as páginas do Imovelweb) tentaria visitar os ~4.400
+        anúncios de OLX, ZAP e QuintoAndar, que já vêm completos da API.
+        Anúncios que saíram do ar ficam de fora.
+        """
+        sql = ("SELECT * FROM anuncios WHERE COALESCE(detalhe_ok, 0) = 0 "
+               "AND removido_em IS NULL")
+        params: list = []
         if somente_sem_terreno:
             sql += " AND area_terreno IS NULL"
+        if portal:
+            sql += " AND portal = ?"
+            params.append(portal)
         sql += " ORDER BY rowid"
-        return self.conn.execute(sql).fetchall()
+        return self.conn.execute(sql, params).fetchall()
 
     def total(self) -> int:
         cur = self.conn.execute("SELECT COUNT(*) FROM anuncios")

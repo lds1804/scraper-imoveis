@@ -11,7 +11,9 @@ Etapas (na ordem):
 
   diárias
     backup       cópia consistente do banco (caca-backup), mantém as 3 últimas
-    coleta       ZAP, QuintoAndar e OLX (o Imovelweb só com --imovelweb)
+    imovelweb    coleta do Imovelweb (navegador) e das suas páginas de detalhe;
+                 se o Cloudflare barrar, desiste e segue (--sem-imovelweb pula)
+    coleta       ZAP, QuintoAndar e OLX
     fotos        baixa as fotos de anúncios que ficaram sem nenhuma
     duplicatas   agrupa o mesmo imóvel anunciado por várias imobiliárias
     endereco     herda número e CEP entre cópias do mesmo imóvel
@@ -31,6 +33,7 @@ Etapas (na ordem):
 Uso:
     caca-atualizar                       # o diário
     caca-atualizar --completo            # inclui as etapas mensais
+    caca-atualizar --sem-imovelweb       # sem a coleta do Imovelweb (navegador)
     caca-atualizar --provedor deepseek   # fotos pela API da DeepSeek
     caca-atualizar --so visao itbi       # só estas etapas
     caca-atualizar --pular coleta        # tudo menos a coleta
@@ -126,8 +129,12 @@ def montar_etapas(args) -> list[Etapa]:
 
     return [
         Etapa("backup", "cópia do banco antes de mexer", funcao=_backup),
-        Etapa("imovelweb", "coleta do Imovelweb (navegador; o Cloudflare às vezes bloqueia)",
-              [["main"], ["enriquecer_detalhes"]], opcional="imovelweb"),
+        # o Imovelweb só abre em navegador real e o Cloudflare às vezes barra:
+        # a coleta desiste depois de IMOVELWEB_MAX_BLOQUEIOS aberturas seguidas
+        # bloqueadas (código 3) e os detalhes depois de 5 falhas seguidas
+        Etapa("imovelweb", "coleta do Imovelweb e das páginas de detalhe (navegador)",
+              [["main"], ["enriquecer_detalhes", "--parar-apos", "5"]],
+              opcional="imovelweb"),
         Etapa("coleta", "anúncios novos do ZAP, QuintoAndar e OLX", [coleta]),
         Etapa("fotos", "fotos dos anúncios que ficaram sem nenhuma", funcao=_fotos),
         Etapa("duplicatas", "o mesmo imóvel em várias imobiliárias",
@@ -190,6 +197,10 @@ def rodar(etapa: Etapa, args) -> tuple[str, str]:
         codigo = _rodar_modulo(cmd)
         if codigo == 130:
             raise KeyboardInterrupt
+        if codigo == 3:
+            log.warning("etapa %s: bloqueio do Cloudflare em `%s`", etapa.nome, cmd[0])
+            return "falhou", ("bloqueado pelo Cloudflare — rode `caca-imovelweb --dry-run`, "
+                              "resolva o desafio na janela e tente de novo")
         if codigo != 0:
             log.warning("etapa %s: `%s` saiu com código %s", etapa.nome, " ".join(cmd), codigo)
             return "falhou", f"`{cmd[0]}` saiu com código {codigo}"
@@ -220,8 +231,10 @@ def main(argv: list[str] | None = None) -> int:
                "itbi-baixar iptu ajustes itbi venal venal-iptu area")
     ap.add_argument("--completo", action="store_true",
                     help="inclui as etapas mensais (ITBI novo e ajustes dos modelos)")
-    ap.add_argument("--imovelweb", action="store_true",
-                    help="inclui a coleta do Imovelweb (navegador)")
+    ap.add_argument("--sem-imovelweb", action="store_true",
+                    help="pula a coleta do Imovelweb (que usa navegador e o Cloudflare "
+                         "às vezes bloqueia)")
+    ap.add_argument("--imovelweb", action="store_true", help=argparse.SUPPRESS)  # legado
     ap.add_argument("--provedor", choices=["claude", "deepseek"],
                     default=config.VISAO_PROVEDOR, help="quem analisa as fotos")
     ap.add_argument("--teto", type=float, default=20.0,
@@ -234,6 +247,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--pular", nargs="+", metavar="ETAPA", help="pula estas etapas")
     ap.add_argument("--listar", action="store_true", help="mostra o plano e sai")
     args = ap.parse_args(argv)
+    args.imovelweb = not args.sem_imovelweb
 
     todas = montar_etapas(args)
     nomes = {e.nome for e in todas}
