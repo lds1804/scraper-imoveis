@@ -4,10 +4,7 @@ import sqlite3
 
 import pytest
 
-import config
-import glue_api
-import migracoes
-import ponte
+from cacaimoveis import config, glue_api, migracoes, ponte
 
 
 # ---------------------------------------------------------------------------
@@ -87,13 +84,13 @@ def test_ponte_nao_existe_em_producao():
     import sys
 
     codigo = (
-        "import webapp; "
+        "from cacaimoveis import webapp; "
         "print(any(r.rule.startswith('/_ponte') for r in webapp.app.url_map.iter_rules()))"
     )
     saida = subprocess.run(
         [sys.executable, "-c", codigo], capture_output=True, text=True, check=True,
         env={**__import__("os").environ, "CACA_AMBIENTE": "producao"},
-        cwd=config.caminho("src"),
+        cwd=config.RAIZ,
     ).stdout.strip()
     assert saida == "False"
 

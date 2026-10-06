@@ -8,7 +8,7 @@ import datetime
 
 import pytest
 
-import analisar_visao as av
+from cacaimoveis import analisar_visao as av
 
 UTC = datetime.UTC
 

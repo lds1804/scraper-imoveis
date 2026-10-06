@@ -15,8 +15,7 @@ import urllib.parse
 import pytest
 from conftest import contem
 
-import config
-import webapp
+from cacaimoveis import config, webapp
 
 N = webapp._nota_encaixe
 

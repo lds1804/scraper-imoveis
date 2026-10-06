@@ -34,7 +34,7 @@ if SRC not in sys.path:
 
 import fabrica  # noqa: E402  (tests/ está no sys.path pelo rootdir)
 
-import indices  # noqa: E402
+from cacaimoveis import indices  # noqa: E402
 
 fabrica.criar(os.environ["CACA_DB"])
 # índices econômicos (BCB, dado público) num arquivo versionado: os testes
@@ -58,7 +58,7 @@ def pytest_sessionfinish(session, exitstatus):
 
 @pytest.fixture(scope="session")
 def app():
-    import webapp
+    from cacaimoveis import webapp
 
     webapp.app.config["TESTING"] = True
     return webapp.app
@@ -83,7 +83,7 @@ def banco_real(monkeypatch):
     """O `imoveis.db` de trabalho, em modo leitura. Pula se não existir."""
     if not os.path.exists(BANCO_REAL):
         pytest.skip("imoveis.db ausente (teste de dados reais)")
-    import config
+    from cacaimoveis import config
 
     monkeypatch.setattr(config, "DB_PATH", BANCO_REAL)
     conn = sqlite3.connect(f"file:{BANCO_REAL}?mode=ro", uri=True)

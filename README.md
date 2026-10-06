@@ -31,7 +31,7 @@ then compares what the *text* claims against what the *photos* actually show.
 | Ads | **4,793** (zap 1,895 · olx 1,890 · quintoandar 877 · imovelweb 131) |
 | Photos downloaded | **57,402** |
 | Ads with vision analysis | **1,829** in the 3 target neighborhoods (0 failures) |
-| ITBI transactions ingested | **537,354** (2006–2026, IPCA-adjusted) |
+| ITBI transactions ingested | **537,354** (2006–2026, IGP-M-adjusted) |
 | GeoSampa fiscal lots | **26,475** |
 | Neighborhoods with results | 18 |
 
@@ -144,7 +144,8 @@ python -m venv .venv
 # Linux / macOS
 source .venv/bin/activate
 
-pip install -r requirements.txt
+pip install -e .              # the package + the `caca-*` commands
+pip install -r requirements-dev.txt   # optional: pytest + ruff
 playwright install chromium
 ```
 
@@ -164,38 +165,51 @@ committed.** Only `deepseek-flash` supports image input.
 
 ### Run
 
-All commands are run **from the project root**:
+`pip install -e .` installs one command per pipeline step. Every one of them
+is also `python -m cacaimoveis.<module>`, and they work from any directory:
+all data paths are resolved from the project root through `config.caminho(...)`.
 
 ```bash
-python main.py --listar       # see the configured neighborhoods
-python main.py --dry-run      # sanity-check the scraping access first
-python main.py                # Imovelweb collection
-python coletar_tudo.py        # ZAP + QuintoAndar + OLX (sequential)
-python enriquecer_detalhes.py # detail pages: full galleries + descriptions
-python achar_duplicatas.py --marcar
-python analisar_visao.py      # vision analysis
+caca-imovelweb --listar       # see the configured neighborhoods
+caca-imovelweb --dry-run      # sanity-check the scraping access first
+caca-imovelweb                # Imovelweb collection
+caca-coletar                  # ZAP + QuintoAndar + OLX (sequential)
+caca-detalhes                 # detail pages: full galleries + descriptions
+caca-duplicatas --marcar
+caca-herdar-endereco          # copy street number / CEP across duplicates
+caca-visao                    # vision analysis
 
 # ITBI: real transaction data (21 spreadsheets, ~532 MB)
-python itbi.py --baixar       # discover + download (URLs change monthly)
-python ingerir_itbi.py        # ingest into SQLite, IPCA-adjusted
-python comparar_itbi.py       # asking price vs. transacted price
+caca-itbi --baixar            # discover + download (URLs change monthly)
+caca-ingerir-itbi             # ingest into SQLite
+caca-comparar-itbi            # asking price vs. transacted price
 
 # value references
-python modelo_casa.py --ajustar    # land + building model
-python valor_venal.py --ajustar    # venal / market ratio per region
-python geosampa.py --ingerir       # city fiscal register (WFS, no key)
-python referencia_geosampa.py --calcular   # area cross-check
+caca-modelo-casa --ajustar    # land + building model
+caca-valor-venal --ajustar    # venal / market ratio per region
+caca-geosampa --ingerir       # city fiscal register (WFS, no key)
+caca-referencia-geosampa --calcular   # area cross-check
 
-python webapp.py              # http://127.0.0.1:5000
+caca-web                      # http://127.0.0.1:5000
 ```
+
+Environment variables (all optional):
+
+| variable | default | effect |
+|---|---|---|
+| `CACA_AMBIENTE` | `local` | `producao` turns off Flask debug and the `/_ponte/*` routes |
+| `CACA_DB` | `imoveis.db` | database file (the deployed site reads the slim `site.db`) |
+| `CACA_FOTOS` | `fotos/` | photo folder |
+| `DEEPSEEK_API_KEY` | — | vision analysis |
 
 ---
 
 ## Project layout
 
 ```
-src/                    production code
+src/cacaimoveis/        production code (an installable package)
   config.py             neighborhoods, price limits, keywords, tunables
+  migracoes.py          versioned schema of the tables the site reads
   scraper_browser.py    Imovelweb scraping + all shared parsing
   storage.py            SQLite persistence + photo downloads
   visao.py              vision analysis library
@@ -204,9 +218,11 @@ src/                    production code
   enriquecer_detalhes.py   completion via each ad's detail page
   processar_ponte.py    processes HTML captured by the browser bridge
   achar_duplicatas.py   pHash duplicate detection
+  herdar_endereco.py    street number / CEP inherited inside duplicate groups
   analisar_visao.py     vision analysis CLI
   auditar_localidade.py neighborhood audit / cleanup
   webapp.py             Flask server
+  ponte.py              browser-bridge routes (local only)
 
   # other portals
   olx.py / olx_principal.py
@@ -217,72 +233,42 @@ src/                    production code
   # ITBI + valuation
   itbi.py               discover + download the monthly spreadsheets
   ingerir_itbi.py       ingest into SQLite (columns mapped by NAME)
-  indices.py            IPCA correction via IBGE
+  indices.py            IGP-M / IPCA correction (BCB)
   endereco.py           address normalization (the two sources disagree)
   comparar_itbi.py      asking vs. transacted price, cascade of 3 levels
   modelo_casa.py        land + building model (see above)
   valor_venal.py        venal / market ratio per region
   geosampa.py           São Paulo fiscal register via open WFS
+  baixar_cadastro.py    full fiscal register download (1.7 M lots)
   referencia_geosampa.py  area cross-check against the city's record
 
-tests/                  run directly, no server needed
-  testar_web.py         route / filter / pagination tests
-  testar_tipo.py        house-vs-apartment classifier (32 checks)
-  medir_rotas.py        times every route — use this when the UI feels slow
-  testar_parser.py      listing parser against saved HTML
-  verificar_localidade.py
-  verificar_financiamento.py
-  conferir_segredos.py  secret scanner (run before publishing)
-  _bootstrap.py         puts src/ on sys.path for these scripts
+tests/                  pytest suite (runs on a synthetic database)
+  fabrica.py            builds the small, deterministic test database
+  fixtures/             public BCB index series (no network in tests)
 
-tools/                  one-off debug helpers
-  inspecionar_detalhe.py   dump a detail page
-  descobrir_bairro.py      find the right neighborhood slug
-  migrar_dados.py          schema migration
-  limpar_por_filtro.py     remove ads failing current filters
-
-antigo/                 superseded, kept for reference
+tools/                  manual helpers: inspection, cleanup, secret scanner
+experimentos/           one-off measurements behind the project's decisions
 
 web/                    templates and CSS
-  templates/            Jinja templates
-  static/style.css      main stylesheet
-  static/comp.css       value references + pagination styles
-
 dados/                  generated outputs (gitignored)
 fotos/                  downloaded photos, one folder per ad (gitignored)
 html_ponte/             HTML captured via the browser bridge (gitignored)
 imoveis.db              generated SQLite database (gitignored)
-
-main.py, webapp.py, ... thin launchers at the root (see below)
 ```
-
-### Why `src/` plus thin launchers at the root
-
-Production code lives in `src/`, but the documented commands still work from
-the root because each is a **2-line launcher** delegating to `src/`:
-
-```python
-from _runner import executar
-executar('main')
-```
-
-`_runner.py` puts `src/` on `sys.path` and **fixes the working directory to the
-project root**. That second part matters: without it, running from another
-directory would create a second, empty `imoveis.db` somewhere else, and the
-data would appear to vanish with no error at all.
-
-All data paths are likewise resolved from the project root through
-`config.caminho(...)`, never from the current directory.
 
 ### Tests
 
 ```bash
-python tests/testar_web.py         # 26 route / filter checks
-python tests/conferir_segredos.py  # scan for leaked secrets
+python -m pytest              # ~145 tests, ~5 s, no network
+ruff check src tests tools
+python tools/conferir_segredos.py   # scan for leaked secrets
 ```
 
-These scripts call `_bootstrap.iniciar()` at the top (which does the same
-`sys.path` / working-directory setup), so they work from any directory.
+The suite runs against a **synthetic database** built by `tests/fabrica.py`,
+so it works on any machine and in CI (GitHub Actions runs lint, tests and the
+secret scanner on every push). Expected counts are read from that database,
+not hard-coded. Tests marked `dados_reais` check the real `imoveis.db` and are
+skipped when it is absent.
 
 > **Gotcha:** when testing links, HTML-unescape (`&amp;` → `&`) before calling
 > `client.get()`. Ad URLs contain query strings, and Jinja escapes them. Without
@@ -416,7 +402,7 @@ PowerShell 5.1 with cp1252 chokes on `tqdm`/`rich` Unicode output.
 
 `GET /` stopped returning. No error, no timeout, just minutes of nothing. It
 looked like an environment problem because the tests hung at the same point.
-Measuring (`tests/medir_rotas.py`) found two causes:
+Measuring (`tools/medir_rotas.py`) found two causes:
 
 **1. `fotos` had no index on `anuncio_url`.** `_fotos_locais()` was called once
 per card, and each call opened its own connection and ran `SCAN fotos` over

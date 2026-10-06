@@ -14,8 +14,8 @@ iniciar()  # poe src/ no sys.path e fixa a raiz como diretorio de trabalho
 import re
 import sqlite3
 
-import config
-from scraper_browser import (
+from cacaimoveis import config
+from cacaimoveis.scraper_browser import (
     _area_construida_da_descricao,
     _area_terreno_da_descricao,
     _titulo_da_url,

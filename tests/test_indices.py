@@ -10,8 +10,7 @@ estes testes não dependem de rede.
 
 import pytest
 
-import comparar_itbi
-import indices
+from cacaimoveis import comparar_itbi, indices
 
 
 @pytest.fixture(scope="module")

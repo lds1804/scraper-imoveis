@@ -2,8 +2,8 @@
 
 > **Método:** todo número deste documento foi **medido no banco, na rede ou no
 > código** — não deduzido. Onde não deu para medir, está escrito *estimado*.
-> Scripts usados: `sonda_fontes.py`, `medir_deploy.py`, `medir_site_db.py`,
-> `custo_visao.py`.
+> Scripts usados: `experimentos/sonda_fontes.py`, `experimentos/medir_deploy.py`, `experimentos/medir_site_db.py`,
+> `experimentos/custo_visao.py`.
 
 ---
 
@@ -14,7 +14,7 @@
 | Cabe no free tier da AWS? | **Sim**, e com folga — desde que o site sirva um banco de **46 MB**, não os 638 MB |
 | O "R$ 30" do DeepSeek de onde vem? | **Todas as fotos + `detail: original` = R$ 29,04.** É o cenário mais caro possível |
 | Dá para rodar o mesmo por muito menos? | **Sim: R$ 12,43** (1× por grupo de duplicata, `detail: low`). E a atualização diária custa **centavos** |
-| O crawler está na legalidade? | **Parcialmente.** O `Crawl-delay: 10` do ZAP/VivaReal é ignorado hoje — isso precisa mudar |
+| O crawler está na legalidade? | **Parcialmente.** O `Crawl-delay: 10` do ZAP/VivaReal passou a ser respeitado (`GLUE_DELAY_S = 10`, garantido em `glue_api.buscar_pagina`); restam os pontos de direito autoral abaixo |
 | Pode publicar o site com esses dados? | **Sim, com ressalvas pontuais.** O risco não é LGPD (não há dado pessoal) — é **direito autoral das fotos e dos textos** |
 | O pipeline já está pronto? | **Não.** Existe o coletor, mas falta a camada de agendamento, retomada e controle de custo |
 
@@ -889,7 +889,7 @@ Ordem importa: as primeiras produzem os *helpers* que as seguintes reusam.
 | # | branch | conteúdo | critério de saída |
 |---|---|---|---|
 | 1 | **`chore/limpeza-raiz`** | mover os ~35 scripts soltos da raiz (o padrão do projeto é atalho de 2 linhas + `src/`); tirar os 3 `.db` de backup do disco; ampliar o `.gitignore` para `saida_*.txt`, `custo.txt`, `deploy.txt`, `site_db.txt`, `sonda.txt` | `git status` limpo, testes passando, raiz com ≤ ~15 arquivos |
-| 2 | **`plano/deploy-aws`** | este documento + `sonda_fontes.py`, `medir_deploy.py`, `medir_site_db.py`, `custo_visao.py` | plano revisado por você |
+| 2 | **`plano/deploy-aws`** | este documento + `experimentos/sonda_fontes.py`, `experimentos/medir_deploy.py`, `experimentos/medir_site_db.py`, `experimentos/custo_visao.py` | plano revisado por você |
 | 3 | **`feat/visao-custo`** | `VISAO_MAX_FOTOS` ≠ 0, `VISAO_ORCAMENTO_USD`, tabela `visao_ledger`, 1× por grupo, agendamento off-peak | rodar em 50 anúncios e **medir** US$ gasto ≈ previsto |
 | 4 | **`dados/indice-igpm`** | corrigir a memória do projeto (o IGP-M **funciona**; o "NXDOMAIN" era certificado self-signed), `indices.py` com escolha de índice | dispersão intrarrua ≤ a do IPCA (já medido: 17,4% vs 18,6%) |
 | 5 | **`feat/pipeline-diario`** | scripts agendáveis, retomada, `config.CADENCIA`, EventBridge | rodar 3 dias seguidos sem intervenção |
@@ -924,10 +924,10 @@ branch: master (limpa, sincronizada com origin/master)
 96 arquivos rastreados · .git = 0,86 MB · nenhum segredo publicado
 8 arquivos NÃO rastreados na raiz:
 
-  conferir_todos.py          -> chore/limpeza-raiz  (ferramenta útil, catalogar)
-  medir_igpm.py              -> dados/indice-igpm
-  testar_indice.py           -> dados/indice-igpm
-  testar_download_lotes.py   -> chore/limpeza-raiz
+  experimentos/conferir_todos.py          -> chore/limpeza-raiz  (ferramenta útil, catalogar)
+  experimentos/medir_igpm.py              -> dados/indice-igpm
+  experimentos/testar_indice.py           -> dados/indice-igpm
+  experimentos/testar_download_lotes.py   -> chore/limpeza-raiz
   saida_igpm.txt             -> IGNORAR (saída gerada)
   saida_indice.txt           -> IGNORAR (saída gerada)
   log_dup.txt                -> IGNORAR (já coberto por *.log)

@@ -351,7 +351,7 @@ Só os **anúncios** precisam ser diários. O resto segue a latência da fonte:
       `plano/deploy-aws`). Os três números que decidem a arquitetura:
       - **`site.db` = 46,3 MB**, não os 638 MB do banco de trabalho — o site
         não lê `lotes` (1,6M) nem `itbi` (537k), que são só insumo de cálculo.
-        Gerado e medido por `medir_site_db.py`.
+        Gerado e medido por `experimentos/medir_site_db.py`.
       - **A AWS aguenta o tráfego:** foto média 93 KB, página com 60 cards =
         5,5 MB, e cabem **191.728 visitas/mês** no 1 TB do CloudFront.
       - **O custo dominante não é a AWS, é o DeepSeek** — e ele é controlável

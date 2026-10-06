@@ -3,6 +3,43 @@ name = "caca-imoveis"
 version = "0.1.0"
 description = "Coleta, enriquece e compara anúncios de casas em São Paulo"
 requires-python = ">=3.12"
+dynamic = ["dependencies"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# `pip install -e .` cria estes comandos (substituem os atalhos que ficavam
+# na raiz). Todos também rodam como `python -m cacaimoveis.<modulo>`.
+[project.scripts]
+caca-web = "cacaimoveis.webapp:main"
+caca-coletar = "cacaimoveis.coletar_tudo:main"
+caca-imovelweb = "cacaimoveis.main:main"
+caca-zap = "cacaimoveis.zap:main"
+caca-olx = "cacaimoveis.olx_principal:main"
+caca-quintoandar = "cacaimoveis.quintoandar_principal:main"
+caca-detalhes = "cacaimoveis.enriquecer_detalhes:main"
+caca-ponte = "cacaimoveis.processar_ponte:main"
+caca-duplicatas = "cacaimoveis.achar_duplicatas:main"
+caca-verificar-duplicatas = "cacaimoveis.verificar_duplicatas:main"
+caca-herdar-endereco = "cacaimoveis.herdar_endereco:main"
+caca-visao = "cacaimoveis.analisar_visao:main"
+caca-auditar-localidade = "cacaimoveis.auditar_localidade:main"
+caca-itbi = "cacaimoveis.itbi:main"
+caca-ingerir-itbi = "cacaimoveis.ingerir_itbi:main"
+caca-comparar-itbi = "cacaimoveis.comparar_itbi:main"
+caca-indices = "cacaimoveis.indices:main"
+caca-modelo-casa = "cacaimoveis.modelo_casa:main"
+caca-valor-venal = "cacaimoveis.valor_venal:main"
+caca-geosampa = "cacaimoveis.geosampa:main"
+caca-baixar-cadastro = "cacaimoveis.baixar_cadastro:main"
+caca-referencia-geosampa = "cacaimoveis.referencia_geosampa:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -15,7 +52,7 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-extend-exclude = ["antigo", "experimentos"]
+extend-exclude = ["experimentos"]
 
 [tool.ruff.lint]
 # E/F: erros reais; B: armadilhas comuns; UP: sintaxe moderna; I: imports

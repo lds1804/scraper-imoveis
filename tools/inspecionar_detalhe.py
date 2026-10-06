@@ -20,8 +20,8 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
-import config
-from scraper_browser import _e_challenge
+from cacaimoveis import config
+from cacaimoveis.scraper_browser import _e_challenge
 
 indice = int(sys.argv[1]) if len(sys.argv) > 1 else 0
 

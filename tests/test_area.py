@@ -9,8 +9,8 @@ import urllib.parse
 
 import pytest
 
-import referencia_geosampa as rg
-import webapp
+from cacaimoveis import referencia_geosampa as rg
+from cacaimoveis import webapp
 
 F = rg.FAIXA_OK / 100
 

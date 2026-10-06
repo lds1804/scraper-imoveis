@@ -23,7 +23,7 @@ pip install -r requirements.txt
 **1. Testar o acesso antes de tudo (recomendado):**
 
 ```powershell
-python main.py --dry-run
+caca-imovelweb --dry-run
 ```
 
 Isso acessa a 1ª página de cada bairro e mostra quantos links de anúncios
@@ -32,9 +32,9 @@ foram encontrados. Se der problema de bloqueio, o HTML é salvo em `debug_html/`
 **2. Coleta completa:**
 
 ```powershell
-python main.py                                # todos os bairros
-python main.py --bairros city-america lapa    # só estes (slug ou nome)
-python main.py --listar                       # ver os bairros disponíveis
+caca-imovelweb                                # todos os bairros
+caca-imovelweb --bairros city-america lapa    # só estes (slug ou nome)
+caca-imovelweb --listar                       # ver os bairros disponíveis
 ```
 
 > **Preço:** o teto é `PRECO_MAX` em `config.py` (hoje R$ 1 mi). Bairros de
@@ -45,7 +45,7 @@ python main.py --listar                       # ver os bairros disponíveis
 **3. Enriquecer com a página individual de cada anúncio (recomendado):**
 
 ```powershell
-python enriquecer_detalhes.py --headless
+caca-detalhes --headless
 ```
 
 A listagem do Imovelweb só traz um resumo truncado da descrição e quase
@@ -80,14 +80,14 @@ Ctrl+C e rodar de novo depois — ele retoma de onde parou.
 **4. Ver a interface web:**
 
 ```powershell
-python webapp.py
+caca-web
 # abra http://127.0.0.1:5000
 ```
 
 **5. Testar as rotas do webapp:**
 
 ```powershell
-python tests\testar_web.py          # não precisa do servidor rodando
+python -m pytest                    # não precisa do servidor rodando
 python tools\conferir_web.py        # precisa do servidor rodando
 ```
 
@@ -131,7 +131,7 @@ fotos/                  fotos baixadas (uma pasta por anúncio, ignorado)
   fallback nacional. Quem confirma o bairro é `bairro_confere()`, comparando
   com os endereços dos anúncios; `coletar_bairro` testa as grafias alternativas
   e pula o bairro se nenhuma conferir.
-- **Auditoria de localidade:** `python auditar_localidade.py` mostra os
+- **Auditoria de localidade:** `caca-auditar-localidade` mostra os
   anúncios fora de SP; `--limpar` remove, `--corrigir-bairros` reescreve a
   coluna `bairro` com o bairro real do endereço.
 - **Anti-bot:** o Imovelweb tem proteção (Cloudflare). As requisições simples
@@ -141,7 +141,7 @@ fotos/                  fotos baixadas (uma pasta por anúncio, ignorado)
   (`HEADLESS = False` em `config.py`) e depois pode rodar headless.
 - **Seletores:** as classes CSS do site mudam. Se os links não forem
   encontrados, ajuste `parse_cards()` em `scraper_browser.py`. Para inspecionar
-  uma página de detalhe, use `python inspecionar_detalhe.py` (gera
+  uma página de detalhe, use `python tools/inspecionar_detalhe.py` (gera
   `debug_detalhe.html` e `insp_detalhe.txt`).
 - **Etiqueta:** respire entre requisições (rate limiting já configurado em
   `config.py`). Leia os Termos de Uso do site. Uso pessoal.

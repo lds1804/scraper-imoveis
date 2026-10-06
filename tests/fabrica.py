@@ -25,7 +25,7 @@ from __future__ import annotations
 import random
 import sqlite3
 
-import migracoes
+from cacaimoveis import migracoes
 
 # bairro -> quantos anúncios "soltos" (sem cópia). Pirituba é grande para a
 # listagem ter mais de duas páginas de 60.

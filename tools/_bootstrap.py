@@ -9,7 +9,7 @@ Chamar `iniciar()` no topo de cada script resolve isso:
     from _bootstrap import iniciar
     iniciar()
 
-    import webapp   # agora funciona, não importa de onde você rodou
+    from cacaimoveis import webapp   # agora funciona, não importa de onde você rodou
 
 Efeitos:
   - `<raiz>/src` no início do `sys.path`

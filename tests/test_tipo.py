@@ -11,7 +11,7 @@ bairros passaria como casa. Foi o que aconteceu na 1ª versão.
 
 import pytest
 
-from scraper_browser import Anuncio, e_casa, tipo_do_anuncio
+from cacaimoveis.scraper_browser import Anuncio, e_casa, tipo_do_anuncio
 
 URL_PADRAO = "https://sp.olx.com.br/x/imoveis/anuncio-12345678"
 

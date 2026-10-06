@@ -32,9 +32,9 @@ import shutil
 import sys
 from collections import Counter
 
-import config
-from scraper_browser import Anuncio, tipo_do_anuncio
-from storage import DB, _slug
+from cacaimoveis import config
+from cacaimoveis.scraper_browser import Anuncio, tipo_do_anuncio
+from cacaimoveis.storage import DB, _slug
 
 
 def _selecionar(db: DB, por_preco: bool, por_tipo: bool
