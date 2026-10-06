@@ -8,7 +8,7 @@ from cacaimoveis import atualizar
 
 
 def _args(**kw):
-    base = dict(completo=False, imovelweb=False, provedor="claude", teto=20.0,
+    base = dict(completo=False, imovelweb=False, provedor="claude", teto=10.0,
                 limite_visao=0, max_paginas=0, so=None, pular=None)
     base.update(kw)
     return argparse.Namespace(**base)
@@ -80,7 +80,7 @@ def test_provedor_chega_na_etapa_de_visao():
     args = _args(provedor="deepseek", limite_visao=5)
     (visao,) = [e for e in atualizar.montar_etapas(args) if e.nome == "visao"]
     assert visao.comandos == [["analisar_visao", "--provedor", "deepseek",
-                               "--limite", "5", "--teto", "20.0"]]
+                               "--limite", "5", "--teto", "10.0", "--sim"]]
 
 
 def test_etapa_desconhecida_e_recusada(capsys):

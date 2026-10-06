@@ -71,6 +71,13 @@ def _e_peak(quando=None) -> bool:
     return (1 <= utc.hour < 4) or (6 <= utc.hour < 10)
 
 
+# Teto de gasto padrão da DeepSeek, em reais. Era 20; uma rodada normal custa
+# centavos a poucos reais (o lote de 620 chamadas custou ~R$ 2,5) e a base
+# INTEIRA ~R$ 11, então 10 já protege de um engano sem atrapalhar o dia a dia.
+TETO_PADRAO_BRL = 10.0
+# Mostra o gasto acumulado a cada tantas análises concluídas
+AVISO_DE_GASTO_A_CADA = 25
+
 # Falhas de TRANSPORTE seguidas (login, rede, timeout) que abortam o lote. O
 # anúncio não tem culpa e a próxima falha seria igual: insistir só gasta tempo.
 FALHAS_SEGUIDAS_MAX = 5
@@ -161,8 +168,10 @@ def main() -> int:
     parser.add_argument("--sem-agrupar", action="store_true",
                         help="não reaproveita duplicatas (analisa cada anúncio)")
     parser.add_argument("--verbose", action="store_true", help="mostra cada requisição")
-    parser.add_argument("--teto", type=float, default=20.0, metavar="R$",
+    parser.add_argument("--teto", type=float, default=TETO_PADRAO_BRL, metavar="R$",
                         help="(deepseek) teto de gasto em REAIS; aborta ao atingir (0 = sem teto)")
+    parser.add_argument("--sim", action="store_true",
+                        help="(deepseek) não pergunta antes de gastar")
     parser.add_argument("--provedor", choices=["claude", "deepseek"],
                         default=config.VISAO_PROVEDOR,
                         help=f"quem analisa as fotos (padrão: {config.VISAO_PROVEDOR})")
@@ -319,6 +328,17 @@ def main() -> int:
             print("    Reduza o escopo (--limite/--bairro) ou aumente --teto.\n")
             db.close()
             return 1
+    # Gasto de verdade: mostra a estimativa e pergunta, a menos que o chamador
+    # (ex.: caca-atualizar) já tenha autorizado com --sim, ou não haja teclado.
+    if deepseek and not args.sim and custo_off >= 0.50 and sys.stdin.isatty():
+        horario_txt = "pico" if _e_peak() else "fora do pico"
+        resp = input(f"\nIsto vai chamar a DeepSeek ({n_chamadas} chamadas) e custar cerca de "
+                     f"R$ {custo_peak if _e_peak() else custo_off:.2f} ({horario_txt}), com teto de "
+                     f"R$ {teto_brl:.2f}. Continuar? [s/N] ").strip().lower()
+        if resp not in ("s", "sim", "y", "yes"):
+            print("Cancelado. Nada foi gasto.")
+            db.close()
+            return 0
     print()
 
     n_ok = n_falha = falhas_seguidas = 0
@@ -349,6 +369,10 @@ def main() -> int:
         # o preço é reavaliado a CADA anúncio: uma execução de 30 min pode
         # cruzar a fronteira do horário caro
         gasto_brl += _custo_brl(n, 1, config.VISAO_DETALHE, peak=_e_peak())
+        feitas = n_ok + n_falha
+        if feitas and feitas % AVISO_DE_GASTO_A_CADA == 0:
+            barra.escrever(f"  [gasto] ~R$ {gasto_brl:.2f} de R$ {teto_brl:.2f} "
+                           f"(teto) · {feitas} de {len(pendentes)} anúncios")
 
     def _verifica_teto() -> None:
         if teto_brl > 0 and gasto_brl >= teto_brl:

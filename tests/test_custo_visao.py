@@ -62,3 +62,65 @@ def test_estimativa_confere_com_a_medicao():
 def test_teto_de_20_reais_cobre_a_lacuna_so_fora_do_pico():
     assert av._custo_brl(22165, 1602, "original") < 20.0
     assert av._custo_brl(22165, 1602, "original", peak=True) > 20.0
+
+
+# ---------------------------------------------------------------------------
+# Confirmação antes de gastar, e gasto na tela
+# ---------------------------------------------------------------------------
+def _executa(monkeypatch, capsys, *args, resposta="n", tty=True):
+    """Roda caca-visao (DeepSeek simulada) e devolve (saída, chamadas, perguntas)."""
+    import sys
+    import types
+
+    from cacaimoveis import visao
+
+    chamadas, perguntas = [], []
+
+    def analisa(url, fotos, **kw):
+        chamadas.append(url)
+        return visao.AnaliseFoto(url=url, ok=True, resumo="x", cuidado_nota=3, confianca="alta")
+
+    monkeypatch.setattr(av, "analisar_anuncio", analisa)
+    monkeypatch.setattr(av, "provedor_pronto", lambda p: None)
+    monkeypatch.setattr(av, "BRL", 1000.0)          # estimativa alta o bastante para perguntar
+    monkeypatch.setattr(sys, "stdin", types.SimpleNamespace(isatty=lambda: tty))
+    monkeypatch.setattr("builtins.input", lambda *a: perguntas.append(a[0]) or resposta)
+    monkeypatch.setattr(sys, "argv", ["caca-visao", "--provedor", "deepseek", "--sem-agrupar",
+                                      "--limite", "6", "--teto", "1000000", *args])
+    av.main()
+    return capsys.readouterr().out, chamadas, perguntas
+
+
+def _volta_a_pendente(url_like="%"):
+    """Os testes dividem o mesmo banco: devolve os anúncios à fila ao terminar."""
+    import os
+    import sqlite3
+
+    conn = sqlite3.connect(os.environ["CACA_DB"])
+    conn.execute("UPDATE anuncios SET foto_ok = NULL WHERE url LIKE ? AND foto_modelo IS NULL "
+                 "AND foto_cuidado = 3", (url_like,))
+    conn.commit()
+    conn.close()
+
+
+def test_pergunta_antes_de_gastar_e_cancela(monkeypatch, capsys):
+    saida, chamadas, perguntas = _executa(monkeypatch, capsys, resposta="n")
+    assert len(perguntas) == 1 and "DeepSeek" in perguntas[0] and "teto" in perguntas[0]
+    assert chamadas == [] and "Nada foi gasto" in saida
+
+
+def test_sim_dispensa_a_pergunta_e_mostra_o_gasto(monkeypatch, capsys):
+    monkeypatch.setattr(av, "AVISO_DE_GASTO_A_CADA", 1)
+    saida, chamadas, perguntas = _executa(monkeypatch, capsys, "--sim")
+    assert perguntas == [] and chamadas
+    assert "[gasto]" in saida                       # o gasto aparece na tela
+
+
+def test_sem_teclado_nao_pergunta(monkeypatch, capsys):
+    """Execução automática (ex.: agendada): não trava esperando resposta."""
+    _, _, perguntas = _executa(monkeypatch, capsys, tty=False)
+    assert perguntas == []
+
+
+def test_teto_padrao_da_deepseek_e_10_reais():
+    assert av.TETO_PADRAO_BRL == 10.0

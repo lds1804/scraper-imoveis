@@ -133,7 +133,9 @@ def montar_etapas(args) -> list[Etapa]:
     if args.limite_visao:
         visao += ["--limite", str(args.limite_visao)]
     if args.provedor == "deepseek":
-        visao += ["--teto", str(args.teto)]
+        # --sim: quem escolheu --provedor deepseek no caca-atualizar já autorizou
+        # o gasto (o plano mostra o provedor); o teto continua valendo
+        visao += ["--teto", str(args.teto), "--sim"]
 
     return [
         Etapa("backup", "cópia do banco antes de mexer", funcao=_backup),
@@ -245,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="pula a coleta do Imovelweb, mesmo no --completo")
     ap.add_argument("--provedor", choices=["claude", "deepseek"],
                     default=config.VISAO_PROVEDOR, help="quem analisa as fotos")
-    ap.add_argument("--teto", type=float, default=20.0,
+    ap.add_argument("--teto", type=float, default=10.0,
                     help="(deepseek) teto de gasto em reais na análise das fotos")
     ap.add_argument("--limite-visao", type=int, default=0, metavar="N",
                     help="analisa no máximo N anúncios nesta rodada")
