@@ -188,7 +188,17 @@ class DB:
         return [{"grupo": k, "membros": v} for k, v in sorted(grupos.items())]
 
     def existe(self, url: str) -> bool:
-        cur = self.conn.execute("SELECT 1 FROM anuncios WHERE url = ?", (url,))
+        """O anúncio já está salvo, com ou sem parâmetros de rastreamento na URL.
+
+        Os anúncios do Imovelweb coletados antes de `url_canonica` foram
+        gravados com `?n_search_id=...` na ponta. A busca por faixa
+        (`base?` até `base@`, os caracteres vizinhos na tabela ASCII) acha
+        essas linhas pelo índice e evita regravar o mesmo anúncio.
+        """
+        base = url.split("#")[0].split("?")[0]
+        cur = self.conn.execute(
+            "SELECT 1 FROM anuncios WHERE url = ? OR (url >= ? AND url < ?) LIMIT 1",
+            (url, base + "?", base + "@"))
         return cur.fetchone() is not None
 
     def salvar_anuncio(self, a: Anuncio) -> None:

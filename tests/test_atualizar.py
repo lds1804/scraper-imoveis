@@ -8,7 +8,7 @@ from cacaimoveis import atualizar
 
 
 def _args(**kw):
-    base = dict(completo=False, imovelweb=True, provedor="claude", teto=20.0,
+    base = dict(completo=False, imovelweb=False, provedor="claude", teto=20.0,
                 limite_visao=0, max_paginas=0, so=None, pular=None)
     base.update(kw)
     return argparse.Namespace(**base)
@@ -20,7 +20,7 @@ def _plano(**kw):
 
 
 def test_plano_diario_na_ordem_certa():
-    assert _plano() == ["backup", "imovelweb", "coleta", "fotos", "duplicatas", "endereco",
+    assert _plano() == ["backup", "coleta", "fotos", "duplicatas", "endereco",
                         "visao", "itbi", "venal", "venal-iptu", "area"]
 
 
@@ -30,16 +30,25 @@ def test_completo_inclui_as_mensais_antes_da_comparacao():
     assert p.index("iptu") < p.index("venal-iptu")
 
 
-def test_imovelweb_esta_no_diario_e_pode_ser_desligado(tmp_path, monkeypatch, capsys):
-    assert _plano().index("imovelweb") < _plano().index("coleta")
-    assert "imovelweb" not in _plano(imovelweb=False)
-    # a flag da linha de comando chega até o plano
-    atualizar.main(["--listar", "--sem-imovelweb"])
-    assert "imovelweb " not in capsys.readouterr().out.split("Plano:")[1]
+def _plano_da_linha_de_comando(capsys, *flags):
+    atualizar.main(["--listar", *flags])
+    linhas = capsys.readouterr().out.split("Plano:")[1].splitlines()
+    return [ln.split()[1] for ln in linhas if ln.strip() and ln.split()[0].rstrip(".").isdigit()]
+
+
+def test_imovelweb_roda_no_mensal_ou_quando_pedido(capsys):
+    """Medido: 2-3 min por bairro, Cloudflare barra depois de ~4 páginas e metade
+    do que traz já existe em outro portal — não compensa todo dia."""
+    assert "imovelweb" not in _plano_da_linha_de_comando(capsys)
+    assert "imovelweb" in _plano_da_linha_de_comando(capsys, "--imovelweb")
+    assert "imovelweb" in _plano_da_linha_de_comando(capsys, "--completo")
+    assert "imovelweb" not in _plano_da_linha_de_comando(capsys, "--completo", "--sem-imovelweb")
+    p = _plano_da_linha_de_comando(capsys, "--imovelweb")
+    assert p.index("imovelweb") < p.index("coleta")
 
 
 def test_etapa_imovelweb_so_visita_detalhe_com_parada_por_bloqueio():
-    args = _args()
+    args = _args(imovelweb=True)
     (etapa,) = [e for e in atualizar.montar_etapas(args) if e.nome == "imovelweb"]
     assert etapa.comandos == [["main"], ["enriquecer_detalhes", "--parar-apos", "5"]]
 
@@ -53,8 +62,8 @@ def test_cloudflare_aparece_com_instrucao_e_nao_para_o_resto(monkeypatch, tmp_pa
         return 3 if cmd[0] == "main" else 0
 
     monkeypatch.setattr(atualizar, "_rodar_modulo", falso)
-    etapa = [e for e in atualizar.montar_etapas(_args()) if e.nome == "imovelweb"][0]
-    situacao, detalhe = atualizar.rodar(etapa, _args())
+    etapa = [e for e in atualizar.montar_etapas(_args(imovelweb=True)) if e.nome == "imovelweb"][0]
+    situacao, detalhe = atualizar.rodar(etapa, _args(imovelweb=True))
     assert situacao == "falhou" and "Cloudflare" in detalhe and "--dry-run" in detalhe
     # sem a coleta, os detalhes não rodam (o bloqueio vale para os dois)
     assert rodadas == ["main"]

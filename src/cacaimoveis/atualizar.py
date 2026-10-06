@@ -11,8 +11,11 @@ Etapas (na ordem):
 
   diárias
     backup       cópia consistente do banco (caca-backup), mantém as 3 últimas
-    imovelweb    coleta do Imovelweb (navegador) e das suas páginas de detalhe;
-                 se o Cloudflare barrar, desiste e segue (--sem-imovelweb pula)
+    imovelweb    coleta do Imovelweb (navegador) e das suas páginas de detalhe.
+                 Só no mensal (--completo) ou com --imovelweb: é lento (2-3 min
+                 por bairro), o Cloudflare barra depois de ~4 páginas seguidas,
+                 e metade do que ele traz já existe em outro portal. Se o
+                 Cloudflare barrar, a etapa desiste e o resto segue
     coleta       ZAP, QuintoAndar e OLX, só até o que já foi visto (incremental;
                  `--completo` faz a varredura inteira)
     fotos        baixa as fotos de anúncios que ficaram sem nenhuma
@@ -34,7 +37,8 @@ Etapas (na ordem):
 Uso:
     caca-atualizar                       # o diário
     caca-atualizar --completo            # inclui as etapas mensais
-    caca-atualizar --sem-imovelweb       # sem a coleta do Imovelweb (navegador)
+    caca-atualizar --imovelweb           # inclui o Imovelweb no diário (navegador)
+    caca-atualizar --completo --sem-imovelweb   # mensal, sem o Imovelweb
     caca-atualizar --provedor deepseek   # fotos pela API da DeepSeek
     caca-atualizar --so visao itbi       # só estas etapas
     caca-atualizar --pular coleta        # tudo menos a coleta
@@ -235,10 +239,10 @@ def main(argv: list[str] | None = None) -> int:
                "itbi-baixar iptu ajustes itbi venal venal-iptu area")
     ap.add_argument("--completo", action="store_true",
                     help="inclui as etapas mensais (ITBI novo e ajustes dos modelos)")
+    ap.add_argument("--imovelweb", action="store_true",
+                    help="inclui a coleta do Imovelweb no diário (já vai no --completo)")
     ap.add_argument("--sem-imovelweb", action="store_true",
-                    help="pula a coleta do Imovelweb (que usa navegador e o Cloudflare "
-                         "às vezes bloqueia)")
-    ap.add_argument("--imovelweb", action="store_true", help=argparse.SUPPRESS)  # legado
+                    help="pula a coleta do Imovelweb, mesmo no --completo")
     ap.add_argument("--provedor", choices=["claude", "deepseek"],
                     default=config.VISAO_PROVEDOR, help="quem analisa as fotos")
     ap.add_argument("--teto", type=float, default=20.0,
@@ -251,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--pular", nargs="+", metavar="ETAPA", help="pula estas etapas")
     ap.add_argument("--listar", action="store_true", help="mostra o plano e sai")
     args = ap.parse_args(argv)
-    args.imovelweb = not args.sem_imovelweb
+    args.imovelweb = (args.completo or args.imovelweb) and not args.sem_imovelweb
 
     todas = montar_etapas(args)
     nomes = {e.nome for e in todas}

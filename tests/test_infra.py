@@ -208,3 +208,44 @@ def test_pendentes_de_detalhe_so_do_portal_pedido(tmp_path):
     assert [r["url"] for r in db.pendentes_detalhe(portal="imovelweb")] == ["a"]
     assert len(db.pendentes_detalhe()) == 3     # sem filtro: todos, menos o removido
     db.close()
+
+
+# ---------------------------------------------------------------------------
+# Imovelweb: a URL do card muda a cada busca
+# ---------------------------------------------------------------------------
+CARD = (
+    '<div data-qa="posting PROPERTY" data-to-posting="{href}">'
+    '<div data-qa="POSTING_CARD_PRICE">R$ 700.000</div>'
+    '<div data-qa="POSTING_CARD_FEATURES">120 m² 3 quartos</div>'
+    '<div class="postingLocations-module__location-text">Vila Mangalot, São Paulo</div>'
+    '</div>'
+)
+
+
+def test_url_do_card_sai_sem_parametros_de_busca():
+    from cacaimoveis.scraper_browser import parse_cards
+
+    base = "https://www.imovelweb.com.br/propriedades/casa-3-quartos-3009994367.html"
+    # duas buscas diferentes: outra posição, outra página, outra sessão
+    a = parse_cards(CARD.format(href=base + "?n_src=Listado&n_pg=1&n_pos=3&n_search_id=aaa"),
+                    "vila-mangalot", filtrar_cidade=False)
+    b = parse_cards(CARD.format(href=base + "?n_src=Listado&n_pg=2&n_pos=17&n_search_id=bbb#x"),
+                    "vila-mangalot", filtrar_cidade=False)
+    assert a[0].url == b[0].url == base
+
+
+def test_existe_reconhece_url_antiga_com_parametros(tmp_path):
+    from cacaimoveis import storage
+
+    db = storage.DB(str(tmp_path / "t.db"))
+    antiga = "https://www.imovelweb.com.br/propriedades/casa-3009994367.html?n_search_id=old&n_pos=3"
+    db.conn.execute("INSERT INTO anuncios (url) VALUES (?)", (antiga,))
+    db.conn.execute("INSERT INTO anuncios (url) VALUES ('https://x/casa-30099943670.html')")
+    db.conn.commit()
+    assert db.existe(antiga)
+    # a versão limpa da mesma URL é o mesmo anúncio
+    assert db.existe("https://www.imovelweb.com.br/propriedades/casa-3009994367.html")
+    # ... mas um id que só COMEÇA igual não é
+    assert not db.existe("https://x/casa-3009994.html")
+    assert not db.existe("https://x/outra.html")
+    db.close()

@@ -255,8 +255,13 @@ TIMEOUT = 30
 # Timeout de navegação (ms)
 NAV_TIMEOUT_MS = 60_000
 
-# Número máximo de páginas de resultados por bairro (None = sem limite)
-MAX_PAGINAS = 20
+# Número máximo de páginas de resultados por bairro no Imovelweb.
+# Medido em 2026-10-06: a busca vem em ordem de RELEVÂNCIA (o bairro aparece
+# primeiro), as páginas 1 a 4 mantiveram 100% do bairro, e o Cloudflare barrou
+# na página 5 (ele limita por ritmo: ~120 anúncios seguidos). Ordenar por
+# "mais recentes" (`-ordem-publicado-maior`) NÃO serve: o filtro de bairro some
+# e a lista vira a cidade inteira (371 mil casas).
+MAX_PAGINAS = 4
 
 # ---------------------------------------------------------------------------
 # Caminhos

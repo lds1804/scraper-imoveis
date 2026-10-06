@@ -166,7 +166,10 @@ def _coletar(selecionados, page, ctx, db) -> None:
 
             db.salvar_anuncio(anuncio)
             novos += 1
-            n = baixar_fotos(anuncio, ctx.request, db)
+            # `None` = requests direto no CDN. Passar `ctx.request` (Playwright) para
+            # as threads de download falhava com "Cannot switch to a different
+            # thread": 36 fotos perdidas em uma rodada de um bairro
+            n = baixar_fotos(anuncio, None, db)
             print(
                 f"  [salvo] {anuncio.titulo[:40]!r} | R$ {anuncio.preco} | "
                 f"quintal={anuncio.match_quintal}({anuncio.score_quintal}) | {n} fotos"

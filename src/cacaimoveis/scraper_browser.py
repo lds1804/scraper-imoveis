@@ -501,6 +501,18 @@ def _e_foto_valida(url: str) -> bool:
     return not _RE_FOTO_INVALIDA.search(url)
 
 
+def url_canonica(url: str) -> str:
+    """A URL do anúncio sem os parâmetros de rastreamento.
+
+    O link do card traz `?n_src=Listado&n_pg=1&n_pos=3&n_search_id=<sessão>`:
+    posição na lista e id da sessão de busca, que MUDAM a cada coleta. Guardar
+    a URL crua fazia o mesmo anúncio parecer novo em toda rodada (linha
+    duplicada e galeria baixada de novo). O identificador do anúncio está no
+    caminho (`...-3009994367.html`); nada na query é preciso para abri-lo.
+    """
+    return url.split("#")[0].split("?")[0]
+
+
 def parse_cards(
     html: str,
     bairro: str,
@@ -535,7 +547,7 @@ def parse_cards(
             link = card.find("a", href=True)
             href = link["href"] if link else ""
         if href:
-            a.url = href if href.startswith("http") else config.BASE_URL + href
+            a.url = url_canonica(href if href.startswith("http") else config.BASE_URL + href)
         else:
             continue
 
@@ -1131,6 +1143,12 @@ def coletar_bairro(page, alvo) -> Iterator[Anuncio]:
                 page.wait_for_timeout(5000)
             else:
                 print("  [falhou] não consegui passar pelo bloqueio. Pulando bairro.")
+                # conta no disjuntor, como a abertura da 1ª página
+                global _bloqueios_seguidos
+                _bloqueios_seguidos += 1
+                if _bloqueios_seguidos >= config.IMOVELWEB_MAX_BLOQUEIOS:
+                    raise CloudflareBloqueou(
+                        f"{_bloqueios_seguidos} aberturas seguidas bloqueadas pelo Cloudflare")
                 break
 
             page.wait_for_timeout(3000)

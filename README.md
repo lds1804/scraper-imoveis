@@ -177,7 +177,7 @@ venal, cadastral area). Steps that fail are reported and the rest go on:
 ```bash
 caca-atualizar                       # daily
 caca-atualizar --completo            # monthly: new ITBI sheets, model refits, yearly IPTU
-caca-atualizar --sem-imovelweb       # skip Imovelweb (browser-based; Cloudflare may block)
+caca-atualizar --imovelweb           # add Imovelweb to the daily run (browser-based)
 caca-atualizar --provedor deepseek   # photo analysis through the DeepSeek API
 caca-atualizar --listar              # show the plan only
 ```
@@ -194,13 +194,20 @@ everything** (it is learning what to skip); from the second on it is short.
 full pass. Duplicate detection caches the photo hashes and groups with numpy
 (19 min -> ~10 s, same groups).
 
-**Imovelweb** is in the daily run. It is the only portal that needs a real
-browser (plain HTTP gets a Cloudflare 403), so it can be blocked: after 3
-blocked page opens in a row the collection stops, keeps what it already saved,
-and the step is reported as failed with the fix (`caca-imovelweb --dry-run`,
-solve the challenge in the window once, run again). The other steps go on.
-Its detail-page step only visits Imovelweb ads (the other portals already come
-complete from their APIs).
+**Imovelweb** runs in the monthly `--completo` (or with `--imovelweb` in the
+daily run), not every day. Measured on 2026-10-06: it needs a real browser
+(plain HTTP gets a Cloudflare 403), takes 2-3 min per neighbourhood, Cloudflare
+blocks after ~4 pages in a row, and half of what it returns is already on
+another portal (17 of 32 new ads in Vila Mangalot; the other 15 were new
+houses). It cannot be made incremental: sorting by "most recent" drops the
+neighbourhood filter (the list becomes all of São Paulo, 371 thousand houses),
+so it keeps the relevance order and reads the first 4 pages per neighbourhood.
+If Cloudflare blocks, the step stops after 3 blocked opens in a row (exit code
+3), keeps what it saved, and the report says what to do
+(`caca-imovelweb --dry-run`, solve the challenge once). Ad URLs are stored
+without the tracking query (`n_search_id`, `n_pos` change on every search; the
+raw URL used to make every run re-save the same ads). Its detail-page step
+only visits Imovelweb ads.
 
 **Photo analysis** runs through the Claude Code CLI by default (`claude -p`,
 using the subscription that is logged in on this machine — run `claude` once
