@@ -33,6 +33,65 @@ from visao import AnaliseFoto, analisar_anuncio, obter_api_key, tem_api_key
 from progresso import Barra
 from storage import DB
 
+# ---------------------------------------------------------------------------
+# Custo em tokens, MEDIDO na API (2026-10-03) — não estimado.
+# ---------------------------------------------------------------------------
+TOK_FOTO = {"low": 203, "original": 458}
+TOK_PROMPT = 907
+TOK_SAIDA = 265
+# Preços `deepseek-flash` em US$/1M. Off-peak é metade do peak; usamos o
+# OFF-PEAK como referência para o TETO (é o que a automação noturna paga) e
+# mostramos o peak como pior caso na estimativa.
+USD_ENTRADA_OFF = 0.15 / 1e6
+USD_SAIDA_OFF = 0.60 / 1e6
+USD_ENTRADA_PEAK = 0.30 / 1e6
+USD_SAIDA_PEAK = 1.20 / 1e6
+BRL = 5.42
+
+
+def _e_peak(quando=None) -> bool:
+    """Estamos no horário CARO da DeepSeek?
+
+    Medido: peak = 01–04h e 06–10h UTC, de segunda a sexta. Fora disso a
+    entrada e a saída custam METADE. A diferença é grande: o banco inteiro
+    custa R$ 10,82 off-peak e R$ 21,63 peak.
+
+    Serve para o teto acumular pelo preço REAL e não pelo pior caso — senão
+    um teto de R$ 20 abortaria faltando R$ 1,63 de trabalho, mesmo rodando
+    no horário barato.
+    """
+    import datetime
+
+    utc = quando or datetime.datetime.now(datetime.timezone.utc)
+    if utc.weekday() >= 5:                      # sábado/domingo: sempre barato
+        return False
+    return (1 <= utc.hour < 4) or (6 <= utc.hour < 10)
+
+
+class _TetoAtingido(Exception):
+    """Levantada para parar o envio quando o teto de gasto e' atingido.
+
+    Fica no escopo do MODULO (nao dentro de `main`) porque o `except` precisa
+    alcancar a mesma classe: definida dentro da funcao, o `except` de fora
+    nao a pegaria.
+    """
+
+
+def _custo_brl(n_fotos: int, n_ads: int, detalhe: str,
+               peak: bool = False) -> float:
+    """Custo em reais de analisar `n_ads` anúncios com `n_fotos` fotos.
+
+    A conta é a mesma usada na estimativa e no teto, de propósito: se fossem
+    duas fórmulas diferentes, o teto poderia ser ultrapassado sem o script
+    perceber.
+    """
+    tf = TOK_FOTO.get(detalhe, TOK_FOTO["original"])
+    ent = n_fotos * tf + n_ads * TOK_PROMPT
+    sai = n_ads * TOK_SAIDA
+    usd = (ent * (USD_ENTRADA_PEAK if peak else USD_ENTRADA_OFF)
+           + sai * (USD_SAIDA_PEAK if peak else USD_SAIDA_OFF))
+    return usd * BRL
+
 
 def _copiar_analise(origem: AnaliseFoto, nova_url: str) -> AnaliseFoto:
     """Copia o resultado de um anúncio duplicado para outro (mesmo imóvel).
@@ -94,6 +153,8 @@ def main() -> None:
     parser.add_argument("--sem-agrupar", action="store_true",
                         help="não reaproveita duplicatas (analisa cada anúncio)")
     parser.add_argument("--verbose", action="store_true", help="mostra cada requisição")
+    parser.add_argument("--teto", type=float, default=20.0, metavar="R$",
+                        help="teto de gasto em REAIS; aborta ao atingir (0 = sem teto)")
     args = parser.parse_args()
 
     if not tem_api_key():
@@ -188,27 +249,82 @@ def main() -> None:
     # A contagem de FOTOS vem do disco (o que será enviado de fato), não da
     # constante de teto — com `VISAO_MAX_FOTOS = 0` (todas) a constante não
     # diria nada.
+    #
+    # Só contam as fotos dos anúncios que REALMENTE vão à API (o principal de
+    # cada grupo + os sem grupo). Somar as fotos de todos os pendentes
+    # superestimava: medido, dava 27.339 fotos onde seriam 22.701 — quase 20%
+    # a mais, e a diferença aparecia justamente no teto, que abortaria cedo
+    # sem necessidade.
     # -----------------------------------------------------------------------
-    tf = {"low": 203, "original": 458}.get(config.VISAO_DETALHE, 458)
+    tf = TOK_FOTO.get(config.VISAO_DETALHE, TOK_FOTO["original"])
+    if not args.sem_agrupar:
+        _ids_que_vai = {
+            r["url"] for r in pendentes
+            if principal_por_dup.get(r["url"], r["url"]) == r["url"]
+        }
+    else:
+        _ids_que_vai = {r["url"] for r in pendentes}
     n_fotos_total = 0
     for r in pendentes:
+        if r["url"] not in _ids_que_vai:
+            continue        # é cópia: herda a análise, não envia foto
         fotos = db.fotos_do_anuncio(r["url"])
         limite = config.VISAO_MAX_FOTOS
         n_fotos_total += len(fotos) if limite <= 0 else min(len(fotos), limite)
-    tok_entrada = len(pendentes) * 907 + n_fotos_total * tf
-    tok_saida = len(pendentes) * 265
-    custo_peak = tok_entrada / 1e6 * 0.30 + tok_saida / 1e6 * 1.20
-    custo_off = tok_entrada / 1e6 * 0.15 + tok_saida / 1e6 * 0.60
-    print(f"Fotos        : {n_fotos_total:,d} em {len(pendentes):,d} anúncios "
-          f"({n_fotos_total/max(len(pendentes),1):.1f}/anúncio)")
-    print(f"Custo        : US$ {custo_off:.2f} off-peak · US$ {custo_peak:.2f} peak "
+    n_chamadas = len(_ids_que_vai)
+    tok_entrada = n_chamadas * TOK_PROMPT + n_fotos_total * tf
+    tok_saida = n_chamadas * TOK_SAIDA
+    custo_peak = (tok_entrada * USD_ENTRADA_PEAK + tok_saida * USD_SAIDA_PEAK) * BRL
+    custo_off = (tok_entrada * USD_ENTRADA_OFF + tok_saida * USD_SAIDA_OFF) * BRL
+    teto_brl = args.teto
+    print(f"Fotos        : {n_fotos_total:,d} em {n_chamadas:,d} chamadas à API "
+          f"({n_fotos_total/max(n_chamadas,1):.1f}/anúncio)")
+    print(f"Custo        : R$ {custo_off:.2f} off-peak · R$ {custo_peak:.2f} peak "
           f"(detail={config.VISAO_DETALHE}, ~{tf} tok/foto)")
+    if teto_brl > 0:
+        horario = "PEAK (dobro)" if _e_peak() else "off-peak (metade)"
+        print(f"Teto         : R$ {teto_brl:.2f}   horário agora: {horario}")
+        if custo_off > teto_brl:
+            print("\n*** ABORTADO: a estimativa off-peak já passa do teto. ***")
+            print("    Reduza o escopo (--limite/--bairro) ou aumente --teto.\n")
+            db.close()
+            return
     print()
 
     n_ok = n_falha = 0
     destaques_quintal = 0
     reaproveitados = 0
+    gasto_brl = 0.0     # acumulado em tempo real, pelo que foi REALMENTE enviado
     t0 = time.time()
+
+    # -----------------------------------------------------------------------
+    # TETO DE GASTO. O acumulado usa as fotos de cada anúncio, não a média:
+    # a cauda é longa (há anúncio com 102 fotos), e uma média subestimaria a
+    # conta justamente nos últimos.
+    #
+    # O acumulado usa o preço do HORÁRIO em vigor (`_e_peak`): peak custa o
+    # dobro do off-peak, e o banco inteiro vai de R$ 10,82 a R$ 21,63 conforme
+    # a hora. Acumular sempre no pior caso faria um teto de R$ 20 abortar
+    # faltando R$ 1,63 mesmo rodando no horário barato; acumular sempre no
+    # melhor caso poderia estourar o teto se a execução atravessasse o peak.
+    # `_custo_brl` é a MESMA função da estimativa: se fossem duas fórmulas, o
+    # teto poderia ser furado sem o script perceber.
+    # -----------------------------------------------------------------------
+    def _soma_gasto(row, fotos, ok: bool) -> None:
+        nonlocal gasto_brl
+        if not ok or teto_brl <= 0:
+            return
+        limite = config.VISAO_MAX_FOTOS
+        n = len(fotos) if limite <= 0 else min(len(fotos), limite)
+        # o preço é reavaliado a CADA anúncio: uma execução de 30 min pode
+        # cruzar a fronteira do horário caro
+        gasto_brl += _custo_brl(n, 1, config.VISAO_DETALHE, peak=_e_peak())
+
+    def _verifica_teto() -> None:
+        if teto_brl > 0 and gasto_brl >= teto_brl:
+            raise _TetoAtingido(
+                f"teto de R$ {teto_brl:.2f} atingido (gasto ~R$ {gasto_brl:.2f})"
+            )
 
     # -----------------------------------------------------------------------
     # Quem realmente precisa de uma chamada à API: só o "principal" de cada
@@ -279,28 +395,47 @@ def main() -> None:
     if args.verbose:
         print(f"[verbose] {len(tarefas_fotos)} chamada(s) à API, {workers} em paralelo")
 
+    interrompido_por_teto = False
     try:
         if workers == 1:
             for row, fotos in tarefas_fotos:
+                _verifica_teto()
                 a = _analisa_e_salva(row, fotos)
+                _soma_gasto(row, fotos, a.ok)
                 _registra(row, a)
                 barra.passo(a.ok)
                 if config.VISAO_DELAY_S:
                     time.sleep(config.VISAO_DELAY_S)
         else:
+            # No modo paralelo não dá para "parar no meio": as tarefas já
+            # estão todas submetidas. Então o teto é checado a cada resultado
+            # que chega e, ao estourar, o pool é encerrado sem esperar o
+            # restante (cancel_futures). O que já foi enviado foi cobrado —
+            # por isso o teto vale como FREIO, não como garantia exata.
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 futuros = {
-                    pool.submit(_analisa_e_salva, row, fotos): row
+                    pool.submit(_analisa_e_salva, row, fotos): (row, fotos)
                     for row, fotos in tarefas_fotos
                 }
-                for fut in as_completed(futuros):
-                    row = futuros[fut]
-                    try:
-                        a = fut.result()
-                    except Exception as e:  # noqa: BLE001
-                        a = AnaliseFoto(url=row["url"], ok=False, erro=str(e)[:300])
-                    _registra(row, a)
-                    barra.passo(a.ok)
+                try:
+                    for fut in as_completed(futuros):
+                        row, fotos = futuros[fut]
+                        try:
+                            a = fut.result()
+                        except Exception as e:  # noqa: BLE001
+                            a = AnaliseFoto(url=row["url"], ok=False, erro=str(e)[:300])
+                        _soma_gasto(row, fotos, a.ok)
+                        _registra(row, a)
+                        barra.passo(a.ok)
+                        if teto_brl > 0 and gasto_brl >= teto_brl:
+                            interrompido_por_teto = True
+                            pendentes_no_pool = [
+                                f for f in futuros if not f.done()]
+                            for f in pendentes_no_pool:
+                                f.cancel()
+                            break
+                except _TetoAtingido:
+                    interrompido_por_teto = True
 
         # duplicatas: copia a análise do principal (não gasta token)
         for principal, membros in copias.items():
@@ -316,6 +451,9 @@ def main() -> None:
                     destaques_quintal += 1
                 barra.passo(True, reaproveitado=True)
 
+    except _TetoAtingido as e:
+        interrompido_por_teto = True
+        barra.escrever(f"  [TETO] {e}")
     except KeyboardInterrupt:
         barra.encerrar()
         print("Interrompido. Progresso salvo — rode de novo para continuar.")
@@ -331,6 +469,13 @@ def main() -> None:
     print(f"Reaproveitados (dup)   : {reaproveitados}")
     print(f"Com quintal de terra   : {destaques_quintal}")
     print(f"Tempo                  : {decorrido:.0f}s")
+    print(f"Gasto (no horário)     : R$ {gasto_brl:.2f}"
+          + (f"  de R$ {teto_brl:.2f}" if teto_brl > 0 else ""))
+    if interrompido_por_teto:
+        print("")
+        print("*** PARADO PELO TETO DE GASTO ***")
+        print("    O que já foi analisado está salvo. Para continuar depois,")
+        print("    rode de novo — ele retoma de onde parou — com --teto maior.")
     if pendentes:
         print(f"Ritmo                  : {decorrido / len(pendentes):.1f}s por anúncio")
     print(f"Restantes              : {len(db.sem_analise_visual(args.incluir_falhas))}")
