@@ -1,0 +1,28 @@
+[project]
+name = "caca-imoveis"
+version = "0.1.0"
+description = "Coleta, enriquece e compara anúncios de casas em São Paulo"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
+addopts = "-ra"
+markers = [
+    "dados_reais: confere o imoveis.db de trabalho (pulado se ausente)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["antigo", "experimentos"]
+
+[tool.ruff.lint]
+# E/F: erros reais; B: armadilhas comuns; UP: sintaxe moderna; I: imports
+select = ["E", "F", "B", "I", "UP"]
+ignore = [
+    "E501",   # linhas longas: os comentários do projeto são de propósito
+    "E402",   # scripts põem `src/` no sys.path antes dos imports (_bootstrap)
+    "E731",   # lambda curta atribuída é usada como atalho local
+    "E741",   # `l` em compreensões curtas
+]

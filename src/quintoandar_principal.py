@@ -76,7 +76,7 @@ def coletar(alvos: list[str] | None, todos: bool,
         return
 
     db = DB()
-    print(f"Portal : QuintoAndar  (inventário próprio)")
+    print("Portal : QuintoAndar  (inventário próprio)")
     print(f"Banco  : {config.DB_PATH}")
     print(f"Já tem : {db.total()} anúncios {db.por_portal()}")
     print(f"Bairros: {len(selecionados)}\n")

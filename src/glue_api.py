@@ -24,10 +24,8 @@ sem ele). O tipo vem no campo `listing.unitTypes` e a filtragem é feita aqui.
 
 from __future__ import annotations
 
-import json
-import re
 import time
-from typing import Iterator, Optional
+from collections.abc import Iterator
 
 import requests
 
@@ -113,7 +111,7 @@ def url_da_foto(template: str, largura: int = 1200, altura: int = 900) -> str:
     )
 
 
-def _primeiro(lista) -> Optional[float]:
+def _primeiro(lista) -> float | None:
     """Primeiro item numérico de uma lista (a API às vezes manda vários)."""
     if isinstance(lista, (int, float)):
         return float(lista)
@@ -125,7 +123,7 @@ def _primeiro(lista) -> Optional[float]:
     return None
 
 
-def _preco_venda(listing: dict) -> Optional[float]:
+def _preco_venda(listing: dict) -> float | None:
     """Preço de venda do anúncio (ignora os preços de aluguel)."""
     for info in listing.get("pricingInfos") or []:
         if info.get("businessType") == _BUSINESS_VENDA and info.get("price"):
@@ -136,7 +134,7 @@ def _preco_venda(listing: dict) -> Optional[float]:
     return None
 
 
-def _areas(listing: dict) -> tuple[Optional[float], Optional[float]]:
+def _areas(listing: dict) -> tuple[float | None, float | None]:
     """(área construída, área do terreno).
 
     `usableAreas` é a área útil/construída. `totalAreas` pode trazer dois
@@ -188,7 +186,7 @@ def _fotos(item: dict) -> list[str]:
     return list(dict.fromkeys(urls))
 
 
-def item_para_anuncio(item: dict, portal: str) -> Optional[Anuncio]:
+def item_para_anuncio(item: dict, portal: str) -> Anuncio | None:
     """Converte um item da API em `Anuncio`. None se não for casa."""
     listing = item.get("listing") or {}
     tipos = listing.get("unitTypes") or []
@@ -245,7 +243,7 @@ def _titulo_gerado(listing: dict) -> str:
     return f"{base} em {bairro}".strip() if bairro else base
 
 
-def _int(lista) -> Optional[int]:
+def _int(lista) -> int | None:
     v = _primeiro(lista)
     return int(v) if v is not None else None
 

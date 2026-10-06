@@ -8,8 +8,10 @@ import os
 import re
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC
 
 import config
+import migracoes
 from scraper_browser import Anuncio
 
 
@@ -34,148 +36,8 @@ class DB:
             self._criar_tabelas()
 
     def _criar_tabelas(self) -> None:
-        self.conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS anuncios (
-                url TEXT PRIMARY KEY,
-                titulo TEXT,
-                bairro TEXT,
-                endereco TEXT,
-                rua TEXT,
-                cep TEXT,
-                preco REAL,
-                area_construida REAL,
-                area_terreno REAL,
-                quartos INTEGER,
-                banheiros INTEGER,
-                vagas INTEGER,
-                descricao TEXT,
-                portal TEXT,
-                fotos_urls TEXT,
-                match_quintal INTEGER,
-                score_quintal INTEGER,
-                aceita_financiamento INTEGER,
-                -- --- análise visual das fotos (DeepSeek) ---
-                foto_ok INTEGER,
-                foto_tem_quintal INTEGER,
-                foto_piso_quintal TEXT,
-                foto_quintal_terra INTEGER,
-                foto_cimentado INTEGER,
-                foto_arvores INTEGER,
-                foto_area_externa INTEGER,
-                foto_vegetacao INTEGER,
-                foto_iluminacao INTEGER,
-                foto_arejamento INTEGER,
-                foto_cuidado INTEGER,
-                foto_janelas_grandes INTEGER,
-                foto_reformado INTEGER,
-                foto_planta_baixa INTEGER,
-                foto_fachada TEXT,
-                foto_piso TEXT,
-                foto_comodos TEXT,
-                foto_extras TEXT,
-                foto_problemas TEXT,
-                foto_resumo TEXT,
-                foto_confianca TEXT,
-                foto_analisada_em TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS fotos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                anuncio_url TEXT,
-                foto_url TEXT,
-                arquivo_local TEXT,
-                FOREIGN KEY (anuncio_url) REFERENCES anuncios(url)
-            );
-            """
-        )
-        self.conn.commit()
-        self._migrar_colunas()
-
-    def _migrar_colunas(self) -> None:
-        """Adiciona colunas novas em bancos já existentes (idempotente)."""
-        existentes = {
-            r["name"] for r in self.conn.execute("PRAGMA table_info(anuncios)")
-        }
-        # detalhe_ok: 1 = a página individual já foi visitada/parseada
-        if "detalhe_ok" not in existentes:
-            self.conn.execute(
-                "ALTER TABLE anuncios ADD COLUMN detalhe_ok INTEGER DEFAULT 0"
-            )
-            self.conn.commit()
-
-        # aceita_financiamento: 1 = o anúncio diz aceitar financiamento
-        if "aceita_financiamento" not in existentes:
-            self.conn.execute(
-                "ALTER TABLE anuncios ADD COLUMN aceita_financiamento INTEGER"
-            )
-            self.conn.commit()
-
-        # rua: logradouro (campo de exibição; `endereco` tem bairro+cidade)
-        if "rua" not in existentes:
-            self.conn.execute("ALTER TABLE anuncios ADD COLUMN rua TEXT")
-            self.conn.commit()
-
-        # cep: só a OLX informa (vem do JSON-LD da página do anúncio)
-        if "cep" not in existentes:
-            self.conn.execute("ALTER TABLE anuncios ADD COLUMN cep TEXT")
-            self.conn.commit()
-
-        # Colunas da análise visual (adicionadas em bancos já existentes).
-        # Todas podem ficar NULL: NULL = anúncio ainda não analisado.
-        colunas_visao = {
-            "foto_ok": "INTEGER",
-            "foto_tem_quintal": "INTEGER",
-            "foto_piso_quintal": "TEXT",
-            "foto_quintal_terra": "INTEGER",
-            "foto_cimentado": "INTEGER",
-            "foto_arvores": "INTEGER",
-            "foto_area_externa": "INTEGER",
-            "foto_vegetacao": "INTEGER",
-            "foto_iluminacao": "INTEGER",
-            "foto_arejamento": "INTEGER",
-            "foto_cuidado": "INTEGER",
-            "foto_janelas_grandes": "INTEGER",
-            "foto_reformado": "INTEGER",
-            "foto_planta_baixa": "INTEGER",
-            "foto_fachada": "TEXT",
-            "foto_piso": "TEXT",
-            "foto_comodos": "TEXT",
-            "foto_extras": "TEXT",
-            "foto_problemas": "TEXT",
-            "foto_resumo": "TEXT",
-            "foto_confianca": "TEXT",
-            "foto_analisada_em": "TEXT",
-        }
-        faltando = [c for c in colunas_visao if c not in existentes]
-        for coluna in faltando:
-            self.conn.execute(
-                f"ALTER TABLE anuncios ADD COLUMN {coluna} {colunas_visao[coluna]}"
-            )
-        if faltando:
-            self.conn.commit()
-
-        # Colunas de agrupamento de duplicatas (pHash). MARCA, não remove:
-        # o mesmo imóvel anunciado por duas imobiliárias pode ter preços
-        # diferentes — isso é informação útil, não lixo.
-        colunas_dup = {
-            "dup_grupo": "INTEGER",       # id do grupo (NULL = sem duplicata)
-            "dup_qtd": "INTEGER",         # quantos anúncios no grupo
-            "dup_melhor": "INTEGER",      # 1 = é o anúncio principal do grupo
-            "dup_n_fotos": "INTEGER",     # fotos do melhor (para comparar)
-            "dup_menor_preco": "REAL",    # menor preço do grupo
-            # JSON com a ficha de CADA anúncio do grupo (preço, link, portal,
-            # nº de fotos). É o que permite agrupar sem perder o preço
-            # individual de cada imobiliária.
-            "dup_detalhes": "TEXT",
-        }
-        faltando_dup = [c for c in colunas_dup if c not in existentes]
-        for coluna in faltando_dup:
-            self.conn.execute(
-                f"ALTER TABLE anuncios ADD COLUMN {coluna} {colunas_dup[coluna]}"
-            )
-        if faltando_dup:
-            self.conn.commit()
+        """Cria/atualiza o schema (ver `migracoes.py`)."""
+        migracoes.migrar(self.conn)
 
     def marcar_duplicatas(self, grupos: list[dict]) -> int:
         """Grava os grupos de duplicatas encontrados pelo pHash.
@@ -466,9 +328,9 @@ class DB:
     # ------------------------------------------------------------------
     def salvar_analise_visual(self, a) -> None:
         """Grava o resultado da análise visual (objeto `AnaliseFoto`)."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        def i(v) -> Optional[int]:
+        def i(v) -> int | None:
             return None if v is None else int(bool(v))
 
         self.conn.execute(
@@ -520,7 +382,7 @@ class DB:
                 ",".join(a.problemas),
                 a.resumo or "",
                 a.confianca or "",
-                datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                datetime.now(UTC).isoformat(timespec="seconds"),
                 a.url,
             ),
         )

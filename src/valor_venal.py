@@ -71,6 +71,7 @@ import time
 
 import config
 import endereco
+import migracoes
 
 try:
     sys.stdout.reconfigure(errors="replace")
@@ -149,11 +150,10 @@ def criar_tabela(conn: sqlite3.Connection) -> None:
         );
         """
     )
-    # coluna que diz de onde veio o CEP (do portal ou deduzido da rua)
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(valores_venais)")}
-    if cols and "origem_cep" not in cols:
-        conn.execute("ALTER TABLE valores_venais ADD COLUMN origem_cep TEXT")
     conn.commit()
+    # `valores_venais` (a tabela que o site lê) vem das migrações. Antes ela
+    # não era criada em lugar nenhum e um banco novo quebrava aqui.
+    migracoes.migrar(conn)
 
 
 def ajustar_ruas(conn: sqlite3.Connection, verbose: bool = True) -> int:

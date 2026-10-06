@@ -124,7 +124,7 @@ def main() -> int:
     resultados: list[tuple[str, str, float]] = []
     t_inicio = time.time()
 
-    for i, (chave, script, nome, tipo) in enumerate(selecionadas, 1):
+    for i, (_chave, script, nome, tipo) in enumerate(selecionadas, 1):
         print("\n" + "#" * 62)
         print(f"# [{i}/{len(selecionadas)}] {nome}")
         print("#" * 62 + "\n", flush=True)

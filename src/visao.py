@@ -24,7 +24,7 @@ import os
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 import config
 
@@ -35,7 +35,7 @@ _ENV_ALTERNATIVAS = (config.DEEPSEEK_ENV_VAR, "DEEPSEEK_KEY", "DEEPSEEK_API_KEY"
 _ARQUIVO_ENV = ".env"
 
 
-def _ler_env_arquivo(chave: str) -> Optional[str]:
+def _ler_env_arquivo(chave: str) -> str | None:
     """Lê uma chave de um `.env` simples (KEY=valor) na raiz do projeto.
 
     A raiz vem do `config`, não do diretório deste arquivo: ele vive em
@@ -95,7 +95,7 @@ def tem_api_key() -> bool:
 # ---------------------------------------------------------------------------
 # Preparação das imagens
 # ---------------------------------------------------------------------------
-def _preparar_imagem(caminho: str, lado_max: int) -> Optional[str]:
+def _preparar_imagem(caminho: str, lado_max: int) -> str | None:
     """Lê, redimensiona e devolve a imagem como data URL base64.
 
     Redimensionar antes de enviar reduz upload e tempo de resposta. A API
@@ -291,7 +291,7 @@ def _extrair_json(texto: str) -> dict:
 # ---------------------------------------------------------------------------
 # Resultado
 # ---------------------------------------------------------------------------
-def _sim_nao(valor: Any) -> Optional[bool]:
+def _sim_nao(valor: Any) -> bool | None:
     """Converte 'sim'/'nao'/'incerto' em True/False/None."""
     if isinstance(valor, bool):
         return valor
@@ -303,7 +303,7 @@ def _sim_nao(valor: Any) -> Optional[bool]:
     return None
 
 
-def _nota(valor: Any) -> Optional[int]:
+def _nota(valor: Any) -> int | None:
     try:
         n = int(round(float(valor)))
     except (TypeError, ValueError):
@@ -332,32 +332,32 @@ class AnaliseFoto:
     # True quando o resultado veio de um duplicado (não gastou tokens)
     analise_reaproveitada: bool = False
     # localização / quintal
-    area_externa: Optional[bool] = None
-    tem_quintal: Optional[bool] = None
+    area_externa: bool | None = None
+    tem_quintal: bool | None = None
     piso_quintal: str = ""
-    quintal_terra: Optional[bool] = None
-    parece_cimentado: Optional[bool] = None
-    arvores: Optional[bool] = None
+    quintal_terra: bool | None = None
+    parece_cimentado: bool | None = None
+    arvores: bool | None = None
     # notas 0-5
-    vegetacao_nota: Optional[int] = None
-    iluminacao_nota: Optional[int] = None
-    arejamento_nota: Optional[int] = None
-    cuidado_nota: Optional[int] = None
+    vegetacao_nota: int | None = None
+    iluminacao_nota: int | None = None
+    arejamento_nota: int | None = None
+    cuidado_nota: int | None = None
     # características
-    janelas_grandes: Optional[bool] = None
+    janelas_grandes: bool | None = None
     fachada: str = ""
-    parece_reformado: Optional[bool] = None
+    parece_reformado: bool | None = None
     piso: str = ""
     comodos: list[str] = field(default_factory=list)
     extras: list[str] = field(default_factory=list)
     problemas: list[str] = field(default_factory=list)
-    tem_planta_baixa: Optional[bool] = None
+    tem_planta_baixa: bool | None = None
     bruto: dict = field(default_factory=dict)
 
     _PISO_QUINTAL_VALIDOS = ("terra", "grama", "cimento", "misto", "incerto")
 
     @classmethod
-    def do_json(cls, url: str, n_fotos: int, dados: dict) -> "AnaliseFoto":
+    def do_json(cls, url: str, n_fotos: int, dados: dict) -> AnaliseFoto:
         piso_q = str(dados.get("piso_quintal", "")).lower().strip()[:10]
         if piso_q not in cls._PISO_QUINTAL_VALIDOS:
             piso_q = ""
@@ -430,7 +430,7 @@ def analisar_anuncio(
     url: str,
     caminhos_fotos: list[str],
     *,
-    max_fotos: Optional[int] = None,
+    max_fotos: int | None = None,
     verbose: bool = True,
 ) -> AnaliseFoto:
     """Analisa as fotos de um anúncio e devolve os parâmetros extraídos.

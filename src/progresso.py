@@ -74,7 +74,7 @@ class Barra:
     # -- construtores -----------------------------------------------------
     @classmethod
     def etapas(cls, nomes: list[str], largura: int = 24, stream=None,
-               rotulo: str = "") -> "Barra":
+               rotulo: str = "") -> Barra:
         """Barra para uma sequência de lotes (bairros, arquivos, páginas).
 
         Como só se sabe o total de itens DEPOIS de percorrer cada lote, o

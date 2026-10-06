@@ -48,6 +48,7 @@ import time
 import config
 import endereco
 import indices
+import migracoes
 
 # o console do PowerShell 5.1 usa cp1252 e derruba o script em qualquer caractere
 # fora dessa tabela. Melhor degradar com '?' do que perder a execução inteira.
@@ -212,12 +213,14 @@ def descrever_filtros() -> str:
 # ---------------------------------------------------------------------------
 def preparar(conn: sqlite3.Connection, verbose: bool = True) -> None:
     """Cria e preenche as colunas normalizadas em `itbi` e `anuncios`."""
-    for tabela in ("itbi", "anuncios"):
-        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({tabela})")}
-        for nova in ("rua_norm", "rua_chave", "cep_norm"):
-            if nova not in cols:
-                conn.execute(f"ALTER TABLE {tabela} ADD COLUMN {nova} TEXT")
-        conn.commit()
+    # em `anuncios` as colunas vêm das migrações; em `itbi` (tabela de
+    # cálculo, fora das migrações) são acrescentadas aqui
+    migracoes.migrar(conn)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(itbi)")}
+    for nova in ("rua_norm", "rua_chave", "cep_norm"):
+        if nova not in cols:
+            conn.execute(f"ALTER TABLE itbi ADD COLUMN {nova} TEXT")
+    conn.commit()
 
     # ---- ITBI ----
     pend = conn.execute(
@@ -293,72 +296,8 @@ def preparar(conn: sqlite3.Connection, verbose: bool = True) -> None:
 
 
 def criar_tabela_comparacoes(conn: sqlite3.Connection) -> None:
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS comparacoes (
-            anuncio_url   TEXT PRIMARY KEY,
-            fonte         TEXT,     -- 'rua+cep' | 'rua' | 'cep'
-            n_transacoes  INTEGER,
-            n_numeros     INTEGER,  -- endereços distintos (mede diversidade)
-            n_financiadas INTEGER,  -- quantas eram financiadas (valor avaliado)
-            metodo        TEXT,     -- como a mediana foi calculada
-            area_ref      REAL,     -- área usada na comparação
-            mediana       REAL,     -- mediana do m² corrigido -> * area
-            media         REAL,
-            minimo        REAL,
-            maximo        REAL,
-            preco_pedido  REAL,
-            razao         REAL,     -- pedido / mediana  (<1 = abaixo)
-            preco_m2_medio REAL,    -- R$/m² praticado na região
-            confianca     TEXT,     -- 'alta' | 'media' | 'baixa'
-            calculado_em  TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_comp_razao ON comparacoes(razao);
-
-        -- as transações que embasaram cada comparação (para auditar)
-        CREATE TABLE IF NOT EXISTS comparacoes_detalhe (
-            anuncio_url   TEXT,
-            itbi_id       INTEGER,
-            logradouro    TEXT,
-            numero        TEXT,
-            bairro        TEXT,
-            cep           TEXT,
-            data_transacao TEXT,
-            area          REAL,
-            area_terreno  REAL,
-            valor_corrigido REAL,
-            preco_m2      REAL
-        );
-        CREATE INDEX IF NOT EXISTS idx_compdet_url ON comparacoes_detalhe(anuncio_url);
-        """
-    )
-    # a tabela pode existir de uma versão anterior, sem as colunas novas
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(comparacoes)")}
-    for nova in ("n_numeros", "n_financiadas", "metodo"):
-        if nova not in cols:
-            conn.execute(f"ALTER TABLE comparacoes ADD COLUMN {nova} INTEGER")
-    # `area_terreno` entrou depois: a comparação usa a área CONSTRUÍDA, mas
-    # mostrar o terreno ao lado ajuda a auditar (duas casas de 140 m² valem
-    # coisas diferentes se uma tem 125 m² de terreno e a outra 500 m²).
-    cols_det = {r[1] for r in conn.execute("PRAGMA table_info(comparacoes_detalhe)")}
-    if "area_terreno" not in cols_det:
-        conn.execute("ALTER TABLE comparacoes_detalhe ADD COLUMN area_terreno REAL")
-    conn.commit()
-    # idade das vendas usadas: permite avisar "base antiga" na tela em vez de
-    # apresentar uma comparação de 2007 como se fosse preço de hoje
-    #   indice_reajuste/data_referencia: com que índice e para que mês os
-    #   valores foram trazidos. Sem isso, uma base corrigida pelo IPCA (ou
-    #   numa referência antiga) pareceria igual a uma corrigida pelo IGP-M —
-    #   é o que permite saber quando precisa RECALCULAR.
-    cols_comp = {r[1] for r in conn.execute("PRAGMA table_info(comparacoes)")}
-    for nova, tipo in (("ano_mais_antigo", "INTEGER"),
-                       ("ano_mais_novo", "INTEGER"),
-                       ("indice_reajuste", "TEXT"),
-                       ("data_referencia", "TEXT"),
-                       ("aviso_base_antiga", "TEXT")):
-        if nova not in cols_comp:
-            conn.execute(f"ALTER TABLE comparacoes ADD COLUMN {nova} {tipo}")
-    conn.commit()
+    """`comparacoes` e `comparacoes_detalhe` (o schema mora em `migracoes`)."""
+    migracoes.migrar(conn)
 
 
 # ---------------------------------------------------------------------------
@@ -416,7 +355,6 @@ def _transacoes(conn: sqlite3.Connection, anuncio: sqlite3.Row,
     # A JANELA é ancorada na venda mais recente encontrada no nível: se a rua
     # só tem venda até 2014, usar "hoje - 10 anos" não acharia nada. O que
     # importa é comparar com a época mais recente que aquela rua tem.
-    corte = None
 
     def _dentro(linhas: list) -> list:
         """Só as transações dentro da janela, ou tudo se a janela esvaziar."""
@@ -566,7 +504,7 @@ def comparar_anuncio(conn: sqlite3.Connection, anuncio: sqlite3.Row,
     }
 
 
-def ano_de(data: Optional[str]) -> Optional[int]:
+def ano_de(data: str | None) -> int | None:
     """'20170628' -> 2017. None se a data não servir."""
     if data and len(str(data)) == 8 and str(data).isdigit():
         return int(str(data)[:4])

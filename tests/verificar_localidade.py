@@ -10,23 +10,21 @@ Uso: python verificar_localidade.py
 
 from __future__ import annotations
 
-
 from _bootstrap import iniciar
+
 iniciar()  # poe src/ no sys.path e fixa a raiz como diretorio de trabalho
 
 import sqlite3
 
 import config
 from scraper_browser import (
+    Anuncio,
     bairro_confere,
-    bairro_do_endereco,
-    cidade_do_endereco,
     e_de_sao_paulo,
     e_fallback_nacional,
     montar_url,
     parse_cards,
 )
-from scraper_browser import Anuncio
 
 linhas: list[str] = []
 

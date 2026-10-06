@@ -60,6 +60,7 @@ import time
 
 import config
 import endereco
+import migracoes
 
 try:
     sys.stdout.reconfigure(errors="replace")
@@ -363,30 +364,7 @@ def calcular(conn: sqlite3.Connection, bairro: str = "",
              verbose: bool = True) -> dict:
     """Grava `areas_oficiais` para os anúncios (a tabela que a interface lê)."""
     criar_tabelas(conn)
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS areas_oficiais (
-            anuncio_url      TEXT PRIMARY KEY,
-            nivel            TEXT,
-            n_lotes          INTEGER,
-            area_anuncio     REAL,
-            area_oficial     REAL,
-            area_terreno_anuncio REAL,
-            area_terreno_oficial REAL,
-            dif_pct          REAL,
-            logradouro       TEXT,
-            numero           TEXT,
-            uso              TEXT,
-            calculado_em     TEXT
-        );
-        """
-    )
-    # coluna nova: QUAL area o numero do anuncio e'. Bancos antigos se
-    # atualizam sozinhos (o `IF NOT EXISTS` não altera tabela existente).
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(areas_oficiais)")}
-    if "area_casa" not in cols:
-        conn.execute("ALTER TABLE areas_oficiais ADD COLUMN area_casa TEXT")
-        conn.commit()
+    migracoes.migrar(conn)  # `areas_oficiais` vem das migrações
     if refazer:
         conn.execute("DELETE FROM areas_oficiais")
         conn.commit()

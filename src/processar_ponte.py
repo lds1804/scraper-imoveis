@@ -33,7 +33,6 @@ from scraper_browser import (
     bairro_do_endereco,
     calcular_financiamento,
     calcular_match_quintal,
-    e_de_sao_paulo,
     parse_cards,
     parse_detalhe,
 )
@@ -172,7 +171,7 @@ def main() -> None:
         # Página de DETALHE: completa um anúncio existente (galeria completa)
         # ------------------------------------------------------------------
         if _e_pagina_detalhe(html):
-            print(f"TIPO   : detalhe")
+            print("TIPO   : detalhe")
             print(f"{'=' * 60}")
             resumo = _processar_detalhe(db, arquivo, html, not args.sem_fotos)
             print(f"  {resumo}\n")

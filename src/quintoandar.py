@@ -20,7 +20,7 @@ de bairro não filtra. Mas usamos a API porque é mais rápida e traz mais campo
 
 from __future__ import annotations
 
-from typing import Iterator, Optional
+from collections.abc import Iterator
 
 import requests
 
@@ -134,7 +134,7 @@ def _corpo(slug: str, pagina: int, tamanho: int) -> dict:
     }
 
 
-def item_para_anuncio(src: dict) -> Optional[Anuncio]:
+def item_para_anuncio(src: dict) -> Anuncio | None:
     """Converte um `_source` da API em `Anuncio`."""
     id_anuncio = src.get("id")
     if not id_anuncio:
@@ -185,14 +185,14 @@ def _titulo(src: dict) -> str:
     return f"{base} - {bairro}".strip(" -") if bairro else base
 
 
-def _num(v) -> Optional[float]:
+def _num(v) -> float | None:
     try:
         return float(v) if v is not None else None
     except (TypeError, ValueError):
         return None
 
 
-def _int(v) -> Optional[int]:
+def _int(v) -> int | None:
     f = _num(v)
     return int(f) if f is not None else None
 

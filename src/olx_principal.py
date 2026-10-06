@@ -34,7 +34,6 @@ from scraper_browser import (
     e_bairro_alvo,
     e_casa,
     e_de_sao_paulo,
-    tipo_do_anuncio,
 )
 from storage import DB, baixar_fotos
 

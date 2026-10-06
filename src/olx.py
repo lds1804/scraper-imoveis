@@ -34,7 +34,6 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import Iterator, Optional
 
 from bs4 import BeautifulSoup
 
@@ -78,7 +77,7 @@ def montar_url(bairro: str, pagina: int = 1) -> str:
     return url
 
 
-def _para_float(valor) -> Optional[float]:
+def _para_float(valor) -> float | None:
     """Converte 'R$ 1.356.300' ou 456000 em float."""
     if valor is None:
         return None
@@ -95,7 +94,7 @@ def _para_float(valor) -> Optional[float]:
         return None
 
 
-def _primeiro_int(texto: str) -> Optional[int]:
+def _primeiro_int(texto: str) -> int | None:
     m = re.search(r"(\d+)", texto or "")
     return int(m.group(1)) if m else None
 
@@ -307,7 +306,6 @@ def parse_detalhe(html: str, anuncio: Anuncio) -> Anuncio:
     # endereço oficial: cidade + UF + CEP
     end = ((dados.get("location") or {}).get("address") or {})
     cidade = _texto_ou(end.get("addressLocality"))
-    uf = _texto_ou(end.get("addressRegion"))
     cep = _texto_ou(end.get("postalCode"))
 
     if cidade and not anuncio.endereco:
@@ -424,8 +422,7 @@ def coletar_bairro(page, bairro, max_paginas: int | None = None,
             do_bairro = sum(1 for a in anuncios if bairro_confere(a.endereco, termo))
             print(f"  {len(anuncios)} anúncios ({do_bairro} do bairro buscado)")
 
-        for a in anuncios:
-            yield a
+        yield from anuncios
 
         if pagina < limite:
             time.sleep(config.DELAY_MIN)

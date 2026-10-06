@@ -50,7 +50,6 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Optional
 
 import requests
 
@@ -157,7 +156,7 @@ class Reajustador:
     """
 
     def __init__(self, indice: str = INDICE_PADRAO,
-                 indice_serie: Optional[dict[str, float]] = None,
+                 indice_serie: dict[str, float] | None = None,
                  verbose: bool = False):
         self.nome = indice
         if indice_serie is not None:
@@ -168,7 +167,7 @@ class Reajustador:
             raise RuntimeError(f"série de índices '{indice}' vazia")
         self.ultimo = max(self.serie)
 
-    def _indice_de(self, data: str) -> Optional[float]:
+    def _indice_de(self, data: str) -> float | None:
         """Índice do mês da data. `data` pode ser 'AAAAMMDD' ou 'AAAAMM'.
 
         Usa o mês da data e, se não houver (mês ainda não publicado), cai para
@@ -189,7 +188,7 @@ class Reajustador:
                 return self.serie[alt]
         return None
 
-    def fator(self, data_origem: str, data_alvo: Optional[str] = None) -> float:
+    def fator(self, data_origem: str, data_alvo: str | None = None) -> float:
         """Multiplicador para levar um valor de `data_origem` até `data_alvo`.
 
         Devolve 1.0 quando não há como calcular (data fora da série), para o
@@ -202,8 +201,8 @@ class Reajustador:
             return 1.0
         return i1 / i0
 
-    def reajustar(self, valor: Optional[float], data_origem: str,
-                  data_alvo: Optional[str] = None) -> Optional[float]:
+    def reajustar(self, valor: float | None, data_origem: str,
+                  data_alvo: str | None = None) -> float | None:
         """Valor histórico -> valor na data de referência."""
         if valor is None:
             return None
@@ -237,7 +236,6 @@ def resumo(verbose: bool = True) -> int:
 
 def main() -> int:
     import argparse
-    import sys
 
     p = argparse.ArgumentParser(description="Índices de reajuste (IPCA)")
     p.add_argument("--verificar", action="store_true",

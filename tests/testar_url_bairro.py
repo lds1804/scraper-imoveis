@@ -11,15 +11,16 @@ Uso:
 
 from __future__ import annotations
 
-
 from _bootstrap import iniciar
+
 iniciar()  # poe src/ no sys.path e fixa a raiz como diretorio de trabalho
 
 import collections
 
+from playwright.sync_api import sync_playwright
+
 import config
 from scraper_browser import _e_challenge, parse_cards
-from playwright.sync_api import sync_playwright
 
 BASE = config.BASE_URL
 

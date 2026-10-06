@@ -30,7 +30,7 @@ import time
 
 import config
 import endereco
-from storage import DB, _slug
+from storage import DB
 
 try:
     import imagehash

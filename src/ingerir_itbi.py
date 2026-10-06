@@ -256,7 +256,7 @@ def ingerir_arquivo(conn: sqlite3.Connection, caminho: str, reaj: indices.Reajus
             if limite and lidas > limite:
                 break
 
-            g = lambda campo: linha[col[campo]] if campo in col and col[campo] < len(linha) else None
+            g = lambda campo: linha[col[campo]] if campo in col and col[campo] < len(linha) else None  # noqa: B023 (usada na mesma volta)
 
             desc_uso = _texto(g("descricao_uso"), 60)
             if so_residencial and not _e_residencial(desc_uso):
@@ -401,14 +401,14 @@ def _resumo(conn: sqlite3.Connection) -> int:
     print(f"Total de transações na base: {total:,d}")
 
     if total:
-        print(f"\npor bairro (top 10):")
+        print("\npor bairro (top 10):")
         for b, n in conn.execute(
             "SELECT bairro, COUNT(*) n FROM itbi GROUP BY bairro "
             "ORDER BY n DESC LIMIT 10"
         ):
             print(f"   {b[:40]:42s} {n:>7,d}")
 
-        print(f"\namostra de valores (corrigidos pelo IPCA para hoje):")
+        print("\namostra de valores (corrigidos pelo IPCA para hoje):")
         for r in conn.execute(
             "SELECT bairro, area_construida, valor_transacao, "
             "valor_transacao_corrigido, data_transacao, descricao_padrao "

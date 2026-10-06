@@ -2,6 +2,7 @@
 
 
 from _bootstrap import iniciar
+
 iniciar()  # poe src/ no sys.path e fixa a raiz como diretorio de trabalho
 
 from scraper_browser import parse_cards

@@ -14,7 +14,7 @@ import shutil
 import sqlite3
 
 import config
-from scraper_browser import _sem_acento, cidade_do_endereco, bairro_do_endereco
+from scraper_browser import _sem_acento, bairro_do_endereco, cidade_do_endereco
 
 
 def _e_sp(endereco: str) -> bool:

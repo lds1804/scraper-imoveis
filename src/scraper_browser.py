@@ -20,8 +20,8 @@ import json
 import random
 import re
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Iterator, Optional
 
 from bs4 import BeautifulSoup
 
@@ -77,19 +77,19 @@ class Anuncio:
     endereco: str = ""
     # `rua` é o logradouro, quando o layout informa (campo só de exibição).
     rua: str = ""
-    preco: Optional[float] = None
-    area_construida: Optional[float] = None
-    area_terreno: Optional[float] = None
-    quartos: Optional[int] = None
-    banheiros: Optional[int] = None
-    vagas: Optional[int] = None
+    preco: float | None = None
+    area_construida: float | None = None
+    area_terreno: float | None = None
+    quartos: int | None = None
+    banheiros: int | None = None
+    vagas: int | None = None
     descricao: str = ""
     portal: str = "imovelweb"
     fotos_urls: list[str] = field(default_factory=list)
     match_quintal: bool = False
     score_quintal: int = 0
     # True/False quando o anúncio deixa claro; None quando não informa
-    aceita_financiamento: Optional[bool] = None
+    aceita_financiamento: bool | None = None
     # CEP do imóvel. Só a OLX informa (no JSON-LD); útil para conferir a
     # localidade quando o texto do bairro é ambíguo.
     cep: str = ""
@@ -98,7 +98,7 @@ class Anuncio:
     # É sinal direto para o agrupamento de duplicatas.
     listing_count: int = 1
     # Suítes (o ZAP/VivaReal não separa; o QuintoAndar informa)
-    suites: Optional[int] = None
+    suites: int | None = None
     # Comodidades cruas como o portal informa (ex.: "POOL", "VISTA_LIVRE").
     # Ficam fora do banco por enquanto; a análise visual cobre o que importa.
     amenities: list[str] = field(default_factory=list)
@@ -128,7 +128,7 @@ class Anuncio:
 # ---------------------------------------------------------------------------
 # Helpers de parsing
 # ---------------------------------------------------------------------------
-def _para_float(valor: Optional[str]) -> Optional[float]:
+def _para_float(valor: str | None) -> float | None:
     if not valor:
         return None
     m = re.search(r"([\d\.]+)(?:,(\d{2}))?", valor)
@@ -142,7 +142,7 @@ def _para_float(valor: Optional[str]) -> Optional[float]:
         return None
 
 
-def _para_int(valor: Optional[str]) -> Optional[int]:
+def _para_int(valor: str | None) -> int | None:
     f = _para_float(valor)
     return int(f) if f is not None else None
 
@@ -254,11 +254,11 @@ def bairro_confere(endereco: str, bairro_esperado: str) -> bool:
         return a.startswith(b) or b.startswith(a)
 
     if len(p_real) == len(p_alvo):
-        return all(casa(r, a) for r, a in zip(sorted(p_real), sorted(p_alvo)))
+        return all(casa(r, a) for r, a in zip(sorted(p_real), sorted(p_alvo), strict=True))
     return False
 
 
-def e_bairro_alvo(anuncio: "Anuncio", alvos=None) -> tuple[bool, str]:
+def e_bairro_alvo(anuncio: Anuncio, alvos=None) -> tuple[bool, str]:
     """True se o anúncio é de algum bairro da lista-alvo (config.BAIRROS).
 
     Rede de segurança contra o que aconteceu com `parque-sao-domingo`: a URL
@@ -277,7 +277,7 @@ def e_bairro_alvo(anuncio: "Anuncio", alvos=None) -> tuple[bool, str]:
     return False, encontrado
 
 
-def e_de_sao_paulo(anuncio: "Anuncio") -> bool:
+def e_de_sao_paulo(anuncio: Anuncio) -> bool:
     """True se o anúncio é da cidade/UF esperada (config).
 
     O site às vezes devolve resultados de outras cidades (fallback nacional),
@@ -339,7 +339,7 @@ _TIPOS_CASA = (
 # apartamentos como casas. Só "casa de vila" (a expressão completa) conta.
 
 
-def tipo_do_anuncio(anuncio: "Anuncio") -> str:
+def tipo_do_anuncio(anuncio: Anuncio) -> str:
     """Classifica o imóvel em 'casa', 'apartamento' ou 'incerto'.
 
     Olha o título e, se ele não disser, o slug da URL. Ordem importa: checa
@@ -360,7 +360,7 @@ def tipo_do_anuncio(anuncio: "Anuncio") -> str:
     return "incerto"
 
 
-def e_casa(anuncio: "Anuncio") -> bool:
+def e_casa(anuncio: Anuncio) -> bool:
     """True se o anúncio NÃO é apartamento (casa ou tipo desconhecido)."""
     return tipo_do_anuncio(anuncio) != "apartamento"
 
@@ -370,7 +370,7 @@ def e_casa(anuncio: "Anuncio") -> bool:
 _RE_HASH_TITULO = re.compile(r"^[0-9a-f]{16,}[^0-9a-zA-Z]*")
 
 
-def _limpar_titulo(alt: Optional[str]) -> str:
+def _limpar_titulo(alt: str | None) -> str:
     """Limpa o alt de uma imagem para virar título legível."""
     if not alt:
         return ""
@@ -383,7 +383,7 @@ def _normalizar_numeros(texto: str) -> str:
     return re.sub(r"(\d),\s+(\d)", r"\1,\2", texto)
 
 
-def _area_terreno_da_descricao(texto: Optional[str]) -> Optional[float]:
+def _area_terreno_da_descricao(texto: str | None) -> float | None:
     """Extrai a área do terreno do texto do anúncio.
 
     Cobre as variações mais comuns nos anúncios do Imovelweb:
@@ -445,7 +445,7 @@ def _area_terreno_da_descricao(texto: Optional[str]) -> Optional[float]:
     return None
 
 
-def _area_construida_da_descricao(texto: Optional[str]) -> Optional[float]:
+def _area_construida_da_descricao(texto: str | None) -> float | None:
     """Extrai a área construída do texto (ex: '220m² de área construída')."""
     if not texto:
         return None
@@ -679,7 +679,7 @@ def _main_features(html: str) -> dict[str, str]:
     }
 
 
-def _int_feature(features: dict[str, str], chave: str) -> Optional[int]:
+def _int_feature(features: dict[str, str], chave: str) -> int | None:
     v = features.get(chave)
     if v is None:
         return None
@@ -768,7 +768,7 @@ def _url_foto_media(url: str) -> str:
     return f"{pasta}/1200x900/{arquivo}"
 
 
-def _float_feature(features: dict[str, str], chave: str) -> Optional[float]:
+def _float_feature(features: dict[str, str], chave: str) -> float | None:
     v = features.get(chave)
     if v is None:
         return None
@@ -894,7 +894,7 @@ RUIDO_FINANCIA = (
 )
 
 
-def _analisa_financiamento(texto: str) -> Optional[bool]:
+def _analisa_financiamento(texto: str) -> bool | None:
     """Analisa o texto por SENTENÇA (não por regex entre frases).
 
     Motivo: as frases são compostas — "Aceita permuta. Financiamento a

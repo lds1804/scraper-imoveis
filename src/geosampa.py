@@ -53,7 +53,6 @@ Uso:
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import sqlite3
 import sys
@@ -61,6 +60,7 @@ import time
 
 import config
 import endereco
+import migracoes
 
 # o console do PowerShell 5.1 é cp1252 e derruba o script em Unicode
 try:
@@ -437,27 +437,8 @@ def _mediana(valores: list[float]) -> float | None:
 # Comparação área do anúncio x área oficial
 # ---------------------------------------------------------------------------
 def criar_tabela_comparacao(conn: sqlite3.Connection) -> None:
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS areas_oficiais (
-            anuncio_url      TEXT PRIMARY KEY,
-            nivel            TEXT,   -- 'lote' | 'rua' | 'bairro'
-            n_lotes          INTEGER,
-            area_anuncio     REAL,
-            area_oficial     REAL,
-            area_terreno_anuncio REAL,
-            area_terreno_oficial REAL,
-            dif_pct          REAL,   -- (anuncio/oficial - 1) * 100
-            logradouro       TEXT,
-            numero           TEXT,
-            uso              TEXT,
-            calculado_em     TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_ao_nivel ON areas_oficiais(nivel);
-        CREATE INDEX IF NOT EXISTS idx_ao_dif   ON areas_oficiais(dif_pct);
-        """
-    )
-    conn.commit()
+    """`areas_oficiais` (o schema mora em `migracoes`)."""
+    migracoes.migrar(conn)
 
 
 def _grau_diferenca(dif: float | None) -> str:
@@ -682,12 +663,9 @@ def resumo(conn: sqlite3.Connection) -> None:
 
     print(f"\n{'bairro':<26} {'lotes':>7} {'mediana constr.':>16} {'mediana terreno':>16}")
     print("-" * 70)
-    for r in conn.execute("""
-        SELECT bairro, COUNT(*) n, area_construida, area_terreno FROM (
-            SELECT bairro, area_construida, area_terreno, COUNT(*) OVER (PARTITION BY bairro) n
-            FROM lotes WHERE COALESCE(area_construida,0) BETWEEN 10 AND 1000
-        ) GROUP BY bairro ORDER BY n DESC LIMIT 18"""):
-        pass  # a mediana precisa ser calculada em Python (SQLite não tem)
+    # a mediana é calculada em Python (SQLite não tem); havia aqui uma
+    # consulta com janela sobre os 1,6 mi de lotes cujo resultado era
+    # descartado — só custava tempo
     _tabela_por_bairro(conn)
 
 
@@ -698,11 +676,11 @@ def _tabela_por_bairro(conn: sqlite3.Connection) -> None:
     linhas = []
     for b in bairros:
         cs = sorted(r[0] for r in conn.execute(
-            """SELECT area_construida FROM lotes WHERE LOWER(bairro)=LOWER(?)
+            """SELECT area_construida FROM lotes WHERE bairro = ?
                AND COALESCE(area_construida,0) BETWEEN ? AND ?""",
             (b, AREA_MINIMA, AREA_MAXIMA_CASA)))
         ts = sorted(r[0] for r in conn.execute(
-            """SELECT area_terreno FROM lotes WHERE LOWER(bairro)=LOWER(?)
+            """SELECT area_terreno FROM lotes WHERE bairro = ?
                AND COALESCE(area_terreno,0) BETWEEN ? AND ?""",
             (b, AREA_MINIMA, AREA_MAXIMA)))
         if len(cs) < 3:

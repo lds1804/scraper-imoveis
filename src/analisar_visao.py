@@ -29,9 +29,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import config
-from visao import AnaliseFoto, analisar_anuncio, obter_api_key, tem_api_key
 from progresso import Barra
 from storage import DB
+from visao import AnaliseFoto, analisar_anuncio, obter_api_key, tem_api_key
 
 # ---------------------------------------------------------------------------
 # Custo em tokens, MEDIDO na API (2026-10-03) — não estimado.
@@ -62,7 +62,7 @@ def _e_peak(quando=None) -> bool:
     """
     import datetime
 
-    utc = quando or datetime.datetime.now(datetime.timezone.utc)
+    utc = quando or datetime.datetime.now(datetime.UTC)
     if utc.weekday() >= 5:                      # sábado/domingo: sempre barato
         return False
     return (1 <= utc.hour < 4) or (6 <= utc.hour < 10)
@@ -220,7 +220,6 @@ def main() -> None:
             for u in membros:
                 principal_por_dup[u] = principal
 
-    urls_pendentes = {r["url"] for r in pendentes}
 
     print(f"Banco        : {config.DB_PATH} ({db.total()} anúncios)")
     print(f"Modelo       : {config.VISAO_MODELO}  (detail={config.VISAO_DETALHE})")
