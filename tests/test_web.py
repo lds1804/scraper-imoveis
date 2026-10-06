@@ -268,3 +268,20 @@ def test_voltar_preserva_os_filtros(cliente, banco):
     # Referer de outro site não vira redirect aberto
     h = _texto(cliente.get(caminho, headers={"Referer": "https://evil.example/"}))
     assert not contem("evil.example", h)
+
+
+# ---------------------------------------------------------------------------
+# Aviso de cobertura da análise visual
+# ---------------------------------------------------------------------------
+def test_filtro_pelas_fotos_avisa_quantos_foram_analisados(cliente, banco):
+    total, analisados = banco.execute(
+        """SELECT COUNT(*), COUNT(foto_analisada_em) FROM anuncios
+           WHERE dup_grupo IS NULL OR dup_melhor = 1""").fetchone()
+    assert analisados < total, "a fábrica deveria ter anúncios sem análise"
+    h = _achata(_texto(cliente.get("/?so_arvores=1")))
+    assert "cobertura-visual" in h
+    assert f"só {analisados} de {total} imóveis" in h
+
+
+def test_sem_filtro_visual_nao_mostra_o_aviso(cliente):
+    assert not contem("cobertura-visual", _texto(cliente.get("/?so_quintal=1")))

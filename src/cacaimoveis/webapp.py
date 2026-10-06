@@ -7,6 +7,7 @@ Uso:
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import sqlite3
 from types import SimpleNamespace
@@ -22,6 +23,7 @@ from flask import (
 )
 
 from cacaimoveis import config
+from cacaimoveis import filtros as flt
 
 app = Flask(
     __name__,
@@ -134,8 +136,6 @@ def _chips_ativos(filtros: dict) -> list[dict]:
     "Lapa" quando "Lapa + Pirituba" estavam marcados deve deixar só
     "Pirituba", não limpar os dois.
     """
-    ORDEM_PADRAO = "score"
-
     def base(sem: str, valor: str | None = None) -> str:
         """URL com todos os filtros, exceto `sem` (ou só o `valor` dele)."""
         q: dict = {}
@@ -165,7 +165,7 @@ def _chips_ativos(filtros: dict) -> list[dict]:
             q["so_arvores"] = "1"
         if filtros.get("so_abaixo") and sem != "so_abaixo":
             q["so_abaixo"] = "1"
-        if filtros.get("ordem") and filtros["ordem"] != ORDEM_PADRAO:
+        if filtros.get("ordem") and filtros["ordem"] != flt.ORDEM_PADRAO:
             q["ordem"] = filtros["ordem"]
 
         return url_for("index", **q) if q else url_for("index")
@@ -226,6 +226,7 @@ def _conn() -> sqlite3.Connection:
     if "db" not in g:
         g.db = sqlite3.connect(config.DB_PATH)
         g.db.row_factory = sqlite3.Row
+        flt.registrar_funcoes(g.db)
     return g.db
 
 
@@ -234,18 +235,6 @@ def _fechar_conn(_exc) -> None:
     conn = g.pop("db", None)
     if conn is not None:
         conn.close()
-
-
-def _numero_da_url(valor: str, tipo=float):
-    """Converte um filtro numérico da URL; valor inválido vira "sem filtro".
-
-    `?preco_max=abc` derrubava a página com erro 500. Ignorar o valor é o
-    comportamento esperado de um campo de busca.
-    """
-    try:
-        return tipo(valor.replace(",", ".")) if valor else None
-    except (TypeError, ValueError):
-        return None
 
 
 def _tem_comparacoes(conn: sqlite3.Connection) -> bool:
@@ -378,85 +367,6 @@ def _venais(conn: sqlite3.Connection, urls: list[str]) -> dict[str, dict]:
     return {r["anuncio_url"]: dict(r) for r in linhas}
 
 
-def _nota_encaixe(a: dict, razao: float | None) -> float | None:
-    """Nota de encaixe: desconto + conservação, medidos nas fotos.
-
-    Por que somar em vez de escolher um: medido em 1.384 anúncios, a
-    correlação entre conservação e razão de preço é **+0,032** — ou seja,
-    ZERO. São dois eixos independentes: existe imóvel barato e malconservado,
-    e imóvel conservado e no preço. Usar um no lugar do outro jogaria
-    informação fora.
-
-    Devolve `None` quando não há como avaliar (sem comparação de preço OU sem
-    análise visual). Nesse caso o anúncio vai para o fim da ordem: não dá para
-    dizer que é um bom encaixe sem ter olhado.
-
-    Faixas (ver `config.ENCAIXE_*`):
-      desconto   -> 0 a 0,5 da nota; 50% abaixo do mercado já satura
-      conservação-> 0 a 0,5; `foto_cuidado` 1..5 vira 0..1
-      problema   -> desconta 0,15 (mofo, infiltração, entulho, obra inacabada)
-    """
-    if razao is None:
-        return None
-    cuidado = a.get("foto_cuidado")
-    if cuidado is None:
-        return None
-
-    # desconto: 0,5 de nota para quem está 50%+ abaixo; acima disso não conta
-    # (razão 0,3 costuma ser erro de dado ou imóvel em péssimo estado, não
-    # oportunidade — e já está marcado como divergente na conferência de área)
-    desc = max(0.0, min(config.ENCAIXE_DESCONTO_MAX, 1.0 - razao))
-    # conservação: 1 -> 0,00 · 2 -> 0,25 · 3 -> 0,50 · 4 -> 0,75 · 5 -> 1,00
-    cons = max(0.0, min(1.0, (float(cuidado) - 1) / 4.0))
-
-    nota = (config.ENCAIXE_PESO_DESCONTO * (desc / config.ENCAIXE_DESCONTO_MAX)
-            + config.ENCAIXE_PESO_CONSERVACAO * cons)
-    if a.get("foto_problemas"):
-        nota -= config.ENCAIXE_PENAL_PROBLEMA
-    return round(max(0.0, nota), 4)
-
-
-def _sem_acento(s: str) -> str:
-    """Minúsculas e sem acento, para comparar nomes de bairro entre si.
-
-    Existe porque o `LOWER()` do SQLite não baixa letra acentuada maiúscula —
-    comparar acento no banco dá resultado errado. Aqui a comparação é em
-    Python, que trata 'Á' -> 'á' corretamente.
-    """
-    import unicodedata
-
-    s = unicodedata.normalize("NFKD", str(s).strip().lower())
-    return "".join(c for c in s if not unicodedata.combining(c))
-
-
-def _resolver_bairros(valores: list[str]) -> list[str]:
-    """Converte o que veio na URL no nome EXATO guardado na coluna `bairro`.
-
-    Aceita três formas, porque as três aparecem na prática:
-      - o nome como está no banco  ("Vila Mangalot", "Água Branca")
-      - o slug do config           ("vila-mangalot", "agua-branca")
-      - variação de acento/caixa   ("agua branca", "VILA MANGALOT")
-
-    Devolve só o que EXISTE na base: bairro configurado sem anúncio (Jaguara,
-    Parque da Lapa, Vila Ipê) não entra no `IN`, senão o filtro não traria
-    nada e pareceria quebrado.
-    """
-    existentes = [r[0] for r in _conn().execute(
-        "SELECT DISTINCT bairro FROM anuncios WHERE COALESCE(bairro,'')<>''")]
-
-    # índice: "agua branca" -> "Água Branca"
-    por_chave = {_sem_acento(b): b for b in existentes}
-    saida: list[str] = []
-    for v in valores:
-        # tenta como veio, depois como slug (vira espaço), depois sem acento
-        for candidato in (v, str(v).replace("-", " "), _sem_acento(v)):
-            achado = por_chave.get(_sem_acento(candidato))
-            if achado and achado not in saida:
-                saida.append(achado)
-                break
-    return saida
-
-
 def _grau_area(dif: float | None) -> str:
     """Mesma faixa usada em `referencia_geosampa._grau()`, para a interface.
 
@@ -573,184 +483,44 @@ def _slug_fotos(anuncio_url: str) -> str:
 # ---------------------------------------------------------------------------
 # Rotas
 # ---------------------------------------------------------------------------
+def _cobertura_visual(conn: sqlite3.Connection, f: flt.Filtros,
+                      tem_comp: bool, tem_dup: bool) -> dict | None:
+    """Quantos imóveis o filtro pelas fotos consegue de fato avaliar.
+
+    Os filtros "com árvores" e "piso do quintal" só enxergam anúncios cujas
+    fotos passaram pela análise visual. Quem não foi analisado some do
+    resultado sem aviso — e "12 casas com árvore" parece ser a resposta sobre
+    a base inteira. Mostrar "X de Y analisados" torna o viés visível.
+    Devolve None quando nenhum filtro visual está ativo.
+    """
+    if not (f.so_arvores or f.piso_quintal):
+        return None
+    sem_visuais = dataclasses.replace(f, so_arvores=False, piso_quintal=[])
+    sql, params = flt.montar_consulta(conn, sem_visuais, tem_comp, tem_dup)
+    total, analisados = conn.execute(
+        f"SELECT COUNT(*), COUNT(foto_analisada_em) FROM ({sql})", params).fetchone()
+    if total == analisados:
+        return None
+    return {"total": total, "analisados": analisados}
+
+
 @app.route("/")
 def index():
-    # MÚLTIPLA escolha: o formulário manda o mesmo nome várias vezes
-    # (?bairro=Lapa&bairro=Pirituba) e `getlist` devolve todos. O código
-    # antigo usava `get` e ficava só com o PRIMEIRO — o usuário marcaria
-    # três bairros e a busca silenciosamente ignoraria dois.
-    bairros_sel = [b.strip() for b in request.args.getlist("bairro") if b.strip()]
-    pisos_sel = [p.strip() for p in request.args.getlist("piso_quintal") if p.strip()]
-    # valor que não é número é descartado aqui, antes de chegar ao SQL e
-    # aos chips (que também convertem)
-    preco_max = request.args.get("preco_max", "").strip()
-    terreno_min = request.args.get("terreno_min", "").strip()
-    quartos_min = request.args.get("quartos_min", "").strip()
-    if _numero_da_url(preco_max) is None:
-        preco_max = ""
-    if _numero_da_url(terreno_min) is None:
-        terreno_min = ""
-    if _numero_da_url(quartos_min, int) is None:
-        quartos_min = ""
-    so_quintal = request.args.get("so_quintal") == "1"
-    so_financiamento = request.args.get("so_financiamento") == "1"
-    sem_financiamento = request.args.get("sem_financiamento") == "1"
-    # filtros que dependem da análise visual das fotos (IA)
-    so_arvores = request.args.get("so_arvores") == "1"
-    # comparação com o preço praticado (ITBI)
-    so_abaixo = request.args.get("so_abaixo") == "1"
-    # Mostrar só UMA linha por imóvel. A mesma casa é anunciada por várias
-    # imobiliárias (medido: 2.857 anúncios em 1.000 grupos; um sobrado
-    # apareceu 25 vezes). Sem isso a lista repete o mesmo imóvel e o usuário
-    # perde tempo relendo. Marcado por padrão; `?todas=1` desliga.
-    todas = request.args.get("todas") == "1"
-    # ORDEM PADRÃO: "encaixe" — desconto + conservação. O usuário pediu peso
-    # para imóvel bem conservado, e medido: na ordem antiga (só desconto) o
-    # topo da lista tinha imóvel com mofo/infiltração nas fotos e cuidado 2/5.
-    # Trocar o padrão é o que faz o pedido valer sem o usuário ter de descobrir
-    # a opção nova no seletor.
-    ordem = request.args.get("ordem", "encaixe")
+    f = flt.Filtros.da_url(request.args)
 
-    # "abaixo da mediana do ITBI": razão = preço pedido / mediana das
-    # transações comparáveis, então < 1 = abaixo do preço praticado.
     conn = _conn()
     tem_comp = _tem_comparacoes(conn)
     tem_areas = _tem_areas(conn)
     tem_venais = _tem_venais(conn)
     tem_dup = _tem_duplicatas(conn)
-
-    # Todas as colunas do WHERE ganham o prefixo `a.` e o LEFT JOIN entra
-    # sempre que a tabela de comparações existe. O LEFT JOIN é necessário
-    # (não INNER) para que quem NÃO tem comparação continue aparecendo na
-    # listagem — só vai para o fim da ordem.
-    if tem_comp:
-        sql = ("SELECT a.* FROM anuncios a "
-               "LEFT JOIN comparacoes c ON c.anuncio_url = a.url "
-               "WHERE 1=1")
-    else:
-        sql = "SELECT a.* FROM anuncios a WHERE 1=1"
-    params: list = []
-
-    if bairros_sel:
-        # Resolve o que veio na URL para o NOME EXATO guardado na coluna.
-        #
-        # ARMADILHA CORRIGIDA (2026-10-06): antes isto era
-        #     AND LOWER(a.bairro) IN (lower(nome), ...)
-        # e o `LOWER()` do SQLite **não baixa letra acentuada maiúscula**:
-        # `LOWER('Água Branca')` devolve `'Água branca'` (o "Á" fica), então
-        # comparar com `'água branca'` (vindo do Python, que baixa) NUNCA
-        # casa. Medido: "Água Branca" (44 anúncios) e "Jardim Íris" (5)
-        # devolviam ZERO ao marcar no filtro, e o total dos outros bairros
-        # vinha menor que o real por causa dos acentuados.
-        #
-        # A correção não usa `LOWER` do banco: traz a lista distinta de
-        # bairros (são 18), casa em Python — que baixa acento direito — e
-        # filtra por igualdade exata.
-        nomes = _resolver_bairros(bairros_sel)
-        if nomes:
-            sql += f" AND a.bairro IN ({','.join('?' * len(nomes))})"
-            params.extend(nomes)
-        else:
-            # Pediram um bairro que NÃO existe na base (nome errado, bairro
-            # configurado sem anúncio, ou typo). Sem isto o filtro sumia em
-            # silêncio e a lista vinha COMPLETA — o usuário marcava "Água
-            # Branca" com um erro de acento e via 2.938 anúncios, achando que
-            # o filtro não funcionava. Devolver zero é a resposta honesta:
-            # nada casa com o que foi pedido.
-            sql += " AND 1=0"
-    if preco_max:
-        sql += " AND a.preco IS NOT NULL AND a.preco <= ?"
-        params.append(_numero_da_url(preco_max))
-    if terreno_min:
-        sql += " AND a.area_terreno IS NOT NULL AND a.area_terreno >= ?"
-        params.append(_numero_da_url(terreno_min))
-    if quartos_min:
-        sql += " AND a.quartos IS NOT NULL AND a.quartos >= ?"
-        params.append(_numero_da_url(quartos_min, int))
-    if so_quintal:
-        sql += " AND a.match_quintal = 1"
-    if so_financiamento:
-        sql += " AND a.aceita_financiamento = 1"
-    if sem_financiamento:
-        sql += " AND (a.aceita_financiamento IS NULL OR a.aceita_financiamento = 0)"
-    if pisos_sel:
-        # OR entre os pisos escolhidos: marcar "terra" e "grama" significa
-        # "tem terra OU é gramado", que é o que a pessoa espera ao marcar os
-        # dois. Um AND entre eles devolveria sempre zero.
-        #
-        # "terra" é um caso especial: quase nenhum quintal é terra PURA (o
-        # normal é terra + um canto cimentado, que o modelo classifica como
-        # "misto"). Perguntar pelo piso predominante devolveria zero — a
-        # pergunta aqui é "tem terra?".
-        partes = []
-        for p in pisos_sel:
-            if p == "terra":
-                partes.append("a.foto_quintal_terra = 1")
-            else:
-                partes.append("a.foto_piso_quintal = ?")
-                params.append(p)
-        sql += " AND (" + " OR ".join(partes) + ")"
-    if so_arvores:
-        sql += " AND a.foto_arvores = 1"
-
-    # UMA linha por imóvel: só o anúncio principal do grupo de duplicatas
-    # (o de menor preço, escolhido em `achar_duplicatas.py --marcar`).
-    # Quem não está em grupo nenhum (`dup_grupo IS NULL`) continua aparecendo:
-    # não ter cópia não é motivo para sumir da lista.
-    #
-    # As cópias NÃO se expandem aqui: elas aparecem na página do anúncio, numa
-    # tabela que compara os preços. Expandir transformaria 1 linha em até 25
-    # cards idênticos — o oposto de ajudar a comparar.
-    if tem_dup and not todas:
-        sql += " AND (a.dup_grupo IS NULL OR a.dup_melhor = 1)"
-
-    # "abaixo da mediana do ITBI" — o JOIN precisa existir para o filtro valer
-    if so_abaixo and tem_comp:
-        sql += " AND c.razao IS NOT NULL AND c.razao < 1"
-
-    # ORDEM PADRÃO: os mais abaixo do mercado primeiro (pedido do usuário).
-    # `c.razao IS NULL` vai para o fim: sem comparação não é "bom negócio",
-    # é ausência de informação — não faz sentido liderar a lista.
-    if tem_comp:
-        ordem_sql = {
-            "abaixo": "c.razao IS NULL, c.razao ASC, a.score_quintal DESC, a.preco ASC",
-            "score": "a.score_quintal DESC, a.preco ASC",
-            "preco_asc": "a.preco ASC",
-            "preco_desc": "a.preco DESC",
-            "terreno": "a.area_terreno DESC",
-            "recentes": "a.rowid DESC",
-            # "encaixe" ordena em PYTHON (ver `_ordenar_por_encaixe`): a nota
-            # soma desconto e conservação, e das duas a conservação não é
-            # coluna ordenável de forma útil em SQL (precisa normalizar 1..5
-            # e descontar problema visível).
-        }.get(ordem, "c.razao IS NULL, c.razao ASC, a.score_quintal DESC, a.preco ASC")
-    else:
-        ordem_sql = {
-            "preco_asc": "a.preco ASC",
-            "preco_desc": "a.preco DESC",
-            "terreno": "a.area_terreno DESC",
-            "recentes": "a.rowid DESC",
-        }.get(ordem, "a.score_quintal DESC, a.preco ASC")
-
-    # Desempate final: quem é principal do seu grupo vem antes. Dois anúncios
-    # com a MESMA razão (ou o mesmo preço) empatariam, e sem isto a posição
-    # ficaria arbitrária. Vale nos dois ramos acima, por isso entra depois.
-    #
-    # NA ORDEM "encaixe" o SQL não ordena: a nota combina desconto e
-    # conservação das fotos, e sem análise visual o anúncio vai para o fim.
-    # Ordenar no banco exigiria replicar a fórmula em SQL; em Python fica
-    # legível e testável (a página tem 60 itens, então não há custo).
-    if ordem == "encaixe":
-        sql += " ORDER BY a.rowid"
-    else:
-        sql += f" ORDER BY {ordem_sql}, a.dup_melhor DESC"
+    sql, params = flt.montar_consulta(conn, f, tem_comp, tem_dup)
 
     # -----------------------------------------------------------------------
     # PAGINAÇÃO. A listagem sem filtro chega a 4.793 anúncios, e renderizar
     # todos produzia uma página de 33,8 MB que levava ~11 s — e travava o
     # navegador. Com 60 por página a resposta fica em poucos KB.
     # -----------------------------------------------------------------------
-    POR_PAGINA = 60
+    POR_PAGINA = flt.POR_PAGINA
     try:
         pagina = max(1, int(request.args.get("pagina", 1)))
     except (TypeError, ValueError):
@@ -761,37 +531,11 @@ def index():
     n_paginas = max(1, (total_filtrado + POR_PAGINA - 1) // POR_PAGINA)
     pagina = min(pagina, n_paginas)
 
-    # O sql sem ORDER BY útil: cada ordem põe a sua no fim (ver acima).
-    if ordem == "encaixe":
-        # A nota de encaixe combina desconto (da comparação de preço) e
-        # conservação (da análise das fotos). Ela NÃO pode ser aplicada só à
-        # página: ordenar as 60 linhas que o LIMIT trouxe daria o top-60 de
-        # uma amostra arbitrária, não os 60 melhores do filtro. Por isso este
-        # ramo busca o conjunto filtrado inteiro, ordena em Python e só então
-        # corta a página.
-        #
-        # A razão vem no próprio SELECT (`_razao`) — pedir numa segunda
-        # consulta seria uma ida ao banco a mais para o mesmo dado.
-        sql_nota = sql.replace("SELECT a.*", "SELECT a.*, c.razao AS _razao", 1)
-        # NÃO reaproveitar o nome `todas`: ele é o filtro "mostrar todas as
-        # cópias". Sobrescrevê-lo com a lista de linhas fazia a caixa aparecer
-        # MARCADA na ordem padrão (lista não vazia = verdadeiro no template),
-        # e reenviar o formulário ligava o filtro sem o usuário pedir.
-        linhas = conn.execute(sql_nota, params).fetchall()
+    anuncios = conn.execute(
+        sql + " LIMIT ? OFFSET ?",
+        [*params, POR_PAGINA, (pagina - 1) * POR_PAGINA]).fetchall()
 
-        def _chave(a):
-            nota = _nota_encaixe(dict(a), a["_razao"] if tem_comp else None)
-            # sem nota (sem preço comparável ou sem foto analisada) vai para o
-            # fim; o desempate é o menor preço, que era o critério antigo
-            return (nota is None, -(nota or 0), a["preco"] or 9e12)
-
-        linhas.sort(key=_chave)
-        inicio = (pagina - 1) * POR_PAGINA
-        anuncios = linhas[inicio:inicio + POR_PAGINA]
-    else:
-        anuncios = conn.execute(
-            sql + " LIMIT ? OFFSET ?",
-            [*params, POR_PAGINA, (pagina - 1) * POR_PAGINA]).fetchall()
+    cobertura_visual = _cobertura_visual(conn, f, tem_comp, tem_dup)
 
     bairros = [
         r["bairro"]
@@ -815,10 +559,8 @@ def index():
         d["area_of"] = areas.get(a["url"])
         d["area_grau"] = _grau_da_area(areas.get(a["url"]))
         d["venal"] = venais.get(a["url"])
-        # nota de encaixe, para o selo no card (a ordem "encaixe" usa a chave
-        # de ordenação lá em cima; aqui é só para exibir)
-        d["encaixe"] = _nota_encaixe(
-            dict(a), (d["comp"] or {}).get("razao"))
+        # nota de encaixe, para o selo no card (calculada no próprio SELECT)
+        d["encaixe"] = a["_nota"]
         # "n_copias" é quantas ofertas do mesmo imóvel existem (1 = única).
         # O aviso no card só aparece quando há mais de uma.
         grupo = a["dup_grupo"]
@@ -838,21 +580,7 @@ def index():
         d["slug_fotos"] = _slug_fotos(a["url"])
         cards.append(d)
 
-    chips = _chips_ativos(
-        {
-            "bairro": bairros_sel,
-            "preco_max": preco_max,
-            "terreno_min": terreno_min,
-            "quartos_min": quartos_min,
-            "so_quintal": so_quintal,
-            "so_financiamento": so_financiamento,
-            "sem_financiamento": sem_financiamento,
-            "piso_quintal": pisos_sel,
-            "so_arvores": so_arvores,
-            "so_abaixo": so_abaixo,
-            "ordem": ordem,
-        }
-    )
+    chips = _chips_ativos(f.como_dict())
     ativos = bool(chips)
 
     # A contagem exibida é o TOTAL filtrado, não o número de cards na página —
@@ -865,21 +593,9 @@ def index():
         n_paginas=n_paginas,
         total_filtrado=total_filtrado,
         por_pagina=POR_PAGINA,
-        filtros={
-            "bairro": bairros_sel,
-            "preco_max": preco_max,
-            "terreno_min": terreno_min,
-            "quartos_min": quartos_min,
-            "so_quintal": so_quintal,
-            "so_financiamento": so_financiamento,
-            "sem_financiamento": sem_financiamento,
-            "piso_quintal": pisos_sel,
-            "so_arvores": so_arvores,
-            "so_abaixo": so_abaixo,
-            "todas": todas,
-            "ordem": ordem,
-        },
+        filtros=f.como_dict(),
         chips=chips,
+        cobertura_visual=cobertura_visual,
         filtros_ativos=ativos,
         tem_comp=tem_comp,
         tem_dup=tem_dup,

@@ -18,11 +18,12 @@ que esta revisão corrige.
 Resultado: **2.857 anúncios em 1.000 grupos** (60% da base), 949 misturando
 portais. 54 grupos recusados por juntarem ruas/bairros diferentes.
 
-### 2. Rodar a análise visual nos 2.707 anúncios que faltam
-O script existe e o preço é conhecido: **menos de US$ 7** para o lote inteiro.
-Sem isso, os filtros de quintal e de árvore simplesmente **não têm dado em 61%
-da base**, e qualquer contagem de "quantos têm quintal" fica respondendo só
-sobre os 3 bairros já analisados — que é um viés invisível na tela.
+### 2. Rodar a análise visual nos anúncios que faltam — QUASE FEITO 🔶
+Reconferido no banco em 2026-10-06: **4.536 de 4.793** anúncios já têm a
+análise das fotos (95%); faltam **257**. Para esses, os filtros de quintal e
+de árvore não têm dado — e a listagem agora AVISA isso quando um filtro pelas
+fotos está ativo ("só X de Y imóveis têm as fotos analisadas"), em vez de o
+viés ficar invisível na tela.
 
 ### 1-B. Herdar número e CEP entre cópias do mesmo imóvel — FEITO ✅
 `herdar_endereco.py`. Custo **zero** (sem rede): os grupos de duplicata ligam a

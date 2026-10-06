@@ -1,0 +1,46 @@
+"""Leitura dos filtros da URL e montagem do SQL, sem passar pelo Flask."""
+
+import pytest
+from werkzeug.datastructures import MultiDict
+
+from cacaimoveis import filtros as flt
+
+
+def test_le_multipla_escolha_e_descarta_numero_invalido():
+    f = flt.Filtros.da_url(MultiDict([
+        ("bairro", "Lapa"), ("bairro", " Pirituba "), ("bairro", ""),
+        ("preco_max", "abc"), ("terreno_min", "250"), ("quartos_min", "2,5"),
+        ("so_quintal", "1"), ("so_arvores", "true"),
+    ]))
+    assert f.bairro == ["Lapa", "Pirituba"]
+    assert f.preco_max == ""          # inválido: sem filtro
+    assert f.terreno_min == "250"
+    assert f.quartos_min == ""        # "2,5" não é inteiro
+    assert f.so_quintal is True
+    assert f.so_arvores is False      # só "1" liga
+    assert f.ordem == flt.ORDEM_PADRAO == "encaixe"
+
+
+def test_ordem_encaixe_bate_com_a_formula_em_python(banco):
+    """A nota calculada no SQL é a mesma de `nota_encaixe` em Python."""
+    flt.registrar_funcoes(banco)
+    sql, params = flt.montar_consulta(banco, flt.Filtros(), tem_comp=True, tem_dup=True)
+    linhas = banco.execute(sql.replace("SELECT a.*", "SELECT a.*, c.razao AS _r", 1),
+                           params).fetchall()
+    notas = [r["_nota"] for r in linhas]
+    for r in linhas:
+        assert r["_nota"] == flt.nota_encaixe(dict(r), r["_r"])
+    com_nota = [n for n in notas if n is not None]
+    assert com_nota == sorted(com_nota, reverse=True)
+    # quem não tem nota vai para o fim
+    assert notas[len(com_nota):] == [None] * (len(notas) - len(com_nota))
+
+
+@pytest.mark.parametrize("valores, esperado", [
+    (["agua-branca"], ["Água Branca"]),
+    (["JARDIM IRIS"], ["Jardim Íris"]),
+    (["Lapa", "lapa"], ["Lapa"]),
+    (["Jaguara"], []),
+])
+def test_resolver_bairros(banco, valores, esperado):
+    assert flt.resolver_bairros(banco, valores) == esperado

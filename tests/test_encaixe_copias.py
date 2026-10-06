@@ -15,9 +15,9 @@ import urllib.parse
 import pytest
 from conftest import contem
 
-from cacaimoveis import config, webapp
+from cacaimoveis import config, filtros
 
-N = webapp._nota_encaixe
+N = filtros.nota_encaixe
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +64,7 @@ def test_ordem_encaixe_e_o_padrao_e_ordena(cliente):
 def test_sqlite_lower_nao_baixa_acento(banco):
     """Documenta a causa do bug do filtro de bairro (ver test_web)."""
     assert banco.execute("SELECT LOWER('Água Branca')").fetchone()[0] != "água branca"
-    assert webapp._sem_acento("Água Branca") == webapp._sem_acento("agua branca")
+    assert filtros.sem_acento("Água Branca") == filtros.sem_acento("agua branca")
 
 
 # ---------------------------------------------------------------------------

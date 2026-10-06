@@ -213,6 +213,15 @@
         </span>
       {% endif %}
     </p>
+    {% if cobertura_visual %}
+      {# Os filtros pelas fotos só enxergam quem passou pela análise visual:
+         sem este aviso, os não analisados somem do resultado em silêncio. #}
+      <p class="dica cobertura-visual">
+        Filtro pelas fotos: só {{ cobertura_visual.analisados | numero }} de
+        {{ cobertura_visual.total | numero }} imóveis têm as fotos analisadas.
+        Os outros não entram neste resultado.
+      </p>
+    {% endif %}
     {% if total %}
       <p class="dica">Clique em um card para ver a galeria completa</p>
     {% endif %}
