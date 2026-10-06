@@ -342,3 +342,13 @@ def test_pagina_2_continua_com_os_mesmos_bairros(cliente):
     r2 = cliente.get("/", query_string=[*q, ("pagina", "2")])
     assert _total(r2) == p1                      # mesmo conjunto, só outra página
     assert 'name="bairro" value="Pirituba" checked' in _achata(_texto(r2))
+
+
+def test_painel_de_bairros_comeca_pelos_prioritarios(cliente):
+    h = _texto(cliente.get("/"))
+    opcoes = re.findall(r'<input type="checkbox" name="bairro" value="([^"]+)"', h)
+    assert opcoes[0] == "Vila Mangalot"          # o único prioritário do banco de teste
+    assert opcoes[1:] == sorted(opcoes[1:], key=lambda s: s.lower().replace("á", "a").replace("í", "i"))
+    # o separador fica entre os prioritários e o resto
+    assert h.index("Outros bairros") > h.index('value="Vila Mangalot"')
+    assert h.index("Outros bairros") < h.index('value="Lapa"')

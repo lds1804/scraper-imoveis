@@ -566,9 +566,11 @@ def index():
     bairros = [
         r["bairro"]
         for r in conn.execute(
-            "SELECT bairro, COUNT(*) c FROM anuncios GROUP BY bairro ORDER BY bairro"
+            "SELECT bairro, COUNT(*) c FROM anuncios WHERE removido_em IS NULL "
+            "AND COALESCE(bairro, '') <> '' GROUP BY bairro ORDER BY bairro"
         ).fetchall()
     ]
+    bairros, n_bairros_prioritarios = flt.ordenar_bairros(bairros)
     urls = [a["url"] for a in anuncios]
     comps = _comparacoes(conn, urls) if tem_comp else {}
     areas = _areas_oficiais(conn, urls) if tem_areas else {}
@@ -617,6 +619,7 @@ def index():
         "index.html",
         cards=cards,
         bairros=bairros,
+        n_bairros_prioritarios=n_bairros_prioritarios,
         pagina=pagina,
         n_paginas=n_paginas,
         total_filtrado=total_filtrado,

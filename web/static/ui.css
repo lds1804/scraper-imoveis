@@ -211,3 +211,11 @@ body {
 .tabela-venal td { padding: 5px 0; color: var(--texto-2); font-variant-numeric: tabular-nums; }
 .tabela-venal td:last-child { text-align: right; font-weight: 600; color: var(--texto); }
 .tabela-venal tr + tr { border-top: 1px solid var(--linha); }
+
+/* separador entre os bairros principais e os demais, no filtro */
+.multi-separador {
+  margin: 6px 0 2px; padding: 6px 10px 2px;
+  border-top: 1px solid var(--linha);
+  font-size: .68rem; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--muted-2);
+}

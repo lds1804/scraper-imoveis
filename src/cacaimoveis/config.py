@@ -45,6 +45,17 @@ class Bairro:
         return [self.slug, *self.apelidos]
 
 
+# Bairros que aparecem NO INÍCIO do filtro da interface, nesta ordem (o resto
+# vem depois, em ordem alfabética). Só afeta a lista do filtro; a coleta usa
+# BAIRROS. Compara sem acento e sem maiúsculas, então "City America" serve.
+BAIRROS_PRIORITARIOS = (
+    "Vila Mangalot",
+    "Parque São Domingos",
+    "City América",
+    "Parque Maria Domitila",
+)
+
+
 # Bairros-alvo. Os dois primeiros são o foco original; o resto amplia a busca
 # para a mesma região (zona oeste/norte de SP — Lapa, Pirituba-Jaraguá).
 BAIRROS: list[Bairro] = [

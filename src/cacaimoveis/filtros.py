@@ -41,6 +41,19 @@ def sem_acento(s: str) -> str:
     return "".join(c for c in s if not unicodedata.combining(c))
 
 
+def ordenar_bairros(nomes: list[str]) -> tuple[list[str], int]:
+    """Bairros do filtro: os prioritários primeiro (ordem do config), depois os outros.
+
+    Devolve (lista ordenada, quantos são prioritários). Os que não existem na
+    base são ignorados; o resto segue em ordem alfabética sem acento.
+    """
+    por_chave = {sem_acento(n): n for n in nomes}
+    prioritarios = [por_chave[k] for k in (sem_acento(p) for p in config.BAIRROS_PRIORITARIOS)
+                    if k in por_chave]
+    outros = sorted((n for n in nomes if n not in prioritarios), key=sem_acento)
+    return prioritarios + outros, len(prioritarios)
+
+
 def resolver_bairros(conn: sqlite3.Connection, valores: list[str]) -> list[str]:
     """Converte o que veio na URL no nome EXATO guardado na coluna `bairro`.
 

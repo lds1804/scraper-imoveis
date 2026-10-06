@@ -45,3 +45,25 @@ def test_ordem_encaixe_bate_com_a_formula_em_python(banco):
 ])
 def test_resolver_bairros(banco, valores, esperado):
     assert flt.resolver_bairros(banco, valores) == esperado
+
+
+def test_bairros_prioritarios_vem_primeiro_na_ordem_do_config():
+    nomes = ["Água Branca", "City América", "Lapa", "Parque Maria Domitila",
+             "Parque São Domingos", "Pirituba", "Vila Mangalot", "Jardim Íris"]
+    ordenados, n = flt.ordenar_bairros(nomes)
+    assert n == 4
+    assert ordenados[:4] == ["Vila Mangalot", "Parque São Domingos",
+                             "City América", "Parque Maria Domitila"]
+    assert ordenados[4:] == ["Água Branca", "Jardim Íris", "Lapa", "Pirituba"]   # sem acento
+
+
+def test_prioritario_que_nao_existe_na_base_e_ignorado():
+    ordenados, n = flt.ordenar_bairros(["Lapa", "Vila Mangalot"])
+    assert ordenados == ["Vila Mangalot", "Lapa"] and n == 1
+    assert flt.ordenar_bairros(["Lapa", "Pirituba"]) == (["Lapa", "Pirituba"], 0)
+
+
+def test_prioritarios_casam_sem_acento_e_sem_caixa(monkeypatch):
+    monkeypatch.setattr(flt.config, "BAIRROS_PRIORITARIOS", ("city america", "VILA MANGALOT"))
+    ordenados, n = flt.ordenar_bairros(["Lapa", "Vila Mangalot", "City América"])
+    assert ordenados == ["City América", "Vila Mangalot", "Lapa"] and n == 2

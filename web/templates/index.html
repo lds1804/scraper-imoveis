@@ -48,6 +48,9 @@
           </button>
           <div class="multi-painel" hidden>
             {% for b in bairros %}
+              {% if n_bairros_prioritarios and loop.index0 == n_bairros_prioritarios %}
+                <div class="multi-separador">Outros bairros</div>
+              {% endif %}
               <label class="multi-opcao">
                 <input type="checkbox" name="bairro" value="{{ b }}"
                        {% if b in filtros.bairro %}checked{% endif %}>
