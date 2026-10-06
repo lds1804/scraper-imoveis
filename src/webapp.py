@@ -884,6 +884,36 @@ def _copias_do_anuncio(conn: sqlite3.Connection,
     return [dict(r) for r in linhas]
 
 
+def _url_voltar() -> str:
+    """Para onde o botão "Voltar" da página de anúncio deve levar.
+
+    DEFEITO CORRIGIDO (2026-10-06): o botão era `url_for('index')` sem
+    parâmetro, então VOLTAR SEMPRE caía na listagem limpa — quem tinha
+    filtrado por bairro, quintal e preço perdia tudo ao olhar um anúncio e
+    voltar. O usuário reclamou: "o voltar limpa os filtros de busca".
+
+    A informação existe: o navegador manda `Referer` com a URL de origem.
+    Usar o Referer (em vez de passar os filtros na URL do anúncio) tem duas
+    vantagens:
+      - preserva TAMBÉM a página (`?pagina=7`) e a ordem, sem precisar
+        reescrever todos os links de card;
+      - o link do anúncio continua limpo e compartilhável.
+
+    Só aceitamos Referer DESTE site: um Referer externo mandaria o usuário
+    para outra página qualquer, e um valor manipulado poderia virar redirect
+    aberto (o clássico "open redirect").
+    """
+    ref = request.referrer or ""
+    if ref:
+        # mesma origem? compara o começo da URL com o host da requisição
+        raiz = request.host_url.rstrip("/")
+        if ref.startswith(raiz) and "/anuncio/" not in ref:
+            return ref
+    # sem Referer (acesso direto, aba nova, link compartilhado): lista limpa,
+    # que é o melhor palpite possível
+    return url_for("index")
+
+
 @app.route("/anuncio/<path:anuncio_url>")
 def detalhe(anuncio_url: str):
     conn = _conn()
@@ -931,7 +961,7 @@ def detalhe(anuncio_url: str):
     # URLs já prontas (o JS do carrossel usa direto, sem montar caminho)
     d["fotos_web"] = [url_for("foto", caminho=f) for f in d["fotos"]]
     d["slug_fotos"] = _slug_fotos(anuncio_url)
-    return render_template("detalhe.html", a=d)
+    return render_template("detalhe.html", a=d, url_voltar=_url_voltar())
 
 
 @app.route("/fotos/<path:caminho>")
