@@ -28,6 +28,7 @@ BANCO_REAL = os.path.join(RAIZ, "imoveis.db")
 _TMP = tempfile.mkdtemp(prefix="caca_testes_")
 os.environ["CACA_DB"] = os.path.join(_TMP, "teste.db")
 os.environ["CACA_FOTOS"] = os.path.join(_TMP, "fotos")
+os.environ["CACA_LOG_DIR"] = os.path.join(_TMP, "logs")
 os.environ.setdefault("CACA_AMBIENTE", "local")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)

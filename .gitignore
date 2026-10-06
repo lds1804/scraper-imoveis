@@ -53,8 +53,9 @@ custo.txt
 # Recriavel a qualquer momento; nao versionar.
 site.db
 
-# Backups locais do banco (o projeto guarda varias copias datadas).
+# Backups locais do banco (`caca-backup`, com rotacao) e copias antigas.
 imoveis_*.db
+backups/
 
 # ---------------------------------------------------------------------------
 # Python

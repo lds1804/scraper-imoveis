@@ -53,7 +53,9 @@ import os
 
 import requests
 
-from cacaimoveis import config
+from cacaimoveis import config, logs
+
+log = logs.obter(__name__)
 
 CACHE = config.caminho("dados", "indices.json")
 
@@ -219,6 +221,7 @@ def resumo(verbose: bool = True) -> int:
     try:
         r = Reajustador(verbose=verbose)
     except Exception as e:  # noqa: BLE001
+        log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
         print(f"[erro] {e}")
         return 1
 

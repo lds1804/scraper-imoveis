@@ -10,8 +10,10 @@ import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC
 
-from cacaimoveis import config, migracoes
+from cacaimoveis import config, logs, migracoes
 from cacaimoveis.scraper_browser import Anuncio
+
+log = logs.obter(__name__)
 
 
 class DB:
@@ -544,6 +546,7 @@ def baixar_fotos(anuncio: Anuncio, request_ctx, db: DB,
                 f.write(dados)
             return (foto_url, caminho)
         except Exception as e:  # noqa: BLE001
+            log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
             print(f"  [aviso] falha ao baixar foto {foto_url}: {str(e)[:80]}")
             return None
 

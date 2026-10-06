@@ -58,7 +58,9 @@ import sqlite3
 import sys
 import time
 
-from cacaimoveis import config, endereco, migracoes
+from cacaimoveis import config, endereco, logs, migracoes
+
+log = logs.obter(__name__)
 
 # o console do PowerShell 5.1 é cp1252 e derruba o script em Unicode
 try:
@@ -124,6 +126,7 @@ def _get(params: dict, tentativas: int = TENTATIVAS) -> str:
                 return r.text
             ultimo = f"HTTP {r.status_code}"
         except Exception as e:  # noqa: BLE001
+            log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
             ultimo = f"{type(e).__name__}: {str(e)[:60]}"
         time.sleep(1.5 * (i + 1))
     raise RuntimeError(f"WFS falhou ({ultimo})")
@@ -600,6 +603,7 @@ def ingerir(conn: sqlite3.Connection, forcar: bool = False,
         try:
             return rua, buscar_por_rua(rua), ""
         except Exception as e:  # noqa: BLE001
+            log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
             return rua, [], f"{type(e).__name__}: {str(e)[:80]}"
 
     with ThreadPoolExecutor(max_workers=PARALELO) as pool:

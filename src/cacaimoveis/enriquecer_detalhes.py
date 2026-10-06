@@ -25,9 +25,11 @@ import time
 
 from playwright.sync_api import sync_playwright
 
-from cacaimoveis import config
+from cacaimoveis import config, logs
 from cacaimoveis.scraper_browser import Anuncio, _e_challenge, calcular_match_quintal, parse_detalhe
 from cacaimoveis.storage import DB, baixar_fotos
+
+log = logs.obter(__name__)
 
 
 def _linha_para_anuncio(row: sqlite3.Row) -> Anuncio:
@@ -79,6 +81,7 @@ def _carregar_pagina(page, url: str) -> str | None:
                 url, wait_until="domcontentloaded", timeout=config.NAV_TIMEOUT_MS
             )
         except Exception as e:  # noqa: BLE001
+            log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
             print(f"    [erro] {e}")
             time.sleep(5 * tentativa)
             continue

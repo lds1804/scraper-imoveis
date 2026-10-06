@@ -18,7 +18,7 @@ import argparse
 import sys
 import time
 
-from cacaimoveis import config
+from cacaimoveis import config, logs
 from cacaimoveis import quintoandar as qa
 from cacaimoveis.progresso import Barra, _duracao, resumo
 from cacaimoveis.scraper_browser import (
@@ -29,6 +29,8 @@ from cacaimoveis.scraper_browser import (
     e_de_sao_paulo,
 )
 from cacaimoveis.storage import DB, baixar_fotos
+
+log = logs.obter(__name__)
 
 PORTAL = "quintoandar"
 
@@ -58,6 +60,7 @@ def dry_run(alvos: list[str] | None, todos: bool) -> None:
         try:
             anuncios, total = qa.buscar_pagina(slug, 1, 20)
         except Exception as e:  # noqa: BLE001
+            log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
             print(f"  {bairro.nome:24s} ERRO: {str(e)[:90]}")
             continue
         alvo = [a for a in anuncios if e_bairro_alvo(a)[0]]
@@ -137,6 +140,7 @@ def coletar(alvos: list[str] | None, todos: bool,
                 fotos_baixadas += baixar_fotos(anuncio, None, db, avisar=_foto)
                 barra.contar()
         except Exception as e:  # noqa: BLE001
+            log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
             barra.escrever(f"  [erro] {bairro.nome}: {str(e)[:90]}")
 
         barra.escrever(

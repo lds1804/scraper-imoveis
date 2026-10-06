@@ -37,7 +37,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
-from cacaimoveis import config, endereco, geosampa
+from cacaimoveis import config, endereco, geosampa, logs
+
+log = logs.obter(__name__)
 
 try:
     sys.stdout.reconfigure(errors="replace")
@@ -122,6 +124,7 @@ def _buscar(pagina: int) -> list[dict]:
             feats = d.get("features") or []
             return [_limpar(f.get("properties") or {}) for f in feats]
         except Exception as e:  # noqa: BLE001
+            log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
             ultimo = f"{type(e).__name__}: {str(e)[:60]}"
             time.sleep(2 * (i + 1))
     raise RuntimeError(f"bloco {pagina} falhou ({ultimo})")
@@ -227,6 +230,7 @@ def main() -> int:
                 lotes = fut.result()
                 feitos += _gravar(conn, lotes)
             except Exception as e:  # noqa: BLE001
+                log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
                 falhas.append((futuros[fut], str(e)[:80]))
             if n % 10 == 0 or n == len(blocos):
                 dt = time.time() - t0

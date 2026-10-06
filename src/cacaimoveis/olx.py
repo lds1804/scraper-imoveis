@@ -37,8 +37,10 @@ import time
 
 from bs4 import BeautifulSoup
 
-from cacaimoveis import config
+from cacaimoveis import config, logs
 from cacaimoveis.scraper_browser import Anuncio, bairro_confere, calcular_match_quintal
+
+log = logs.obter(__name__)
 
 PORTAL = "olx"
 
@@ -361,6 +363,7 @@ def _abrir(page, url: str, tentativas: int = 3, quieto: bool = False) -> str | N
             resp = page.goto(url, wait_until="domcontentloaded",
                              timeout=config.NAV_TIMEOUT_MS)
         except Exception as e:  # noqa: BLE001
+            log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
             if not quieto:
                 print(f"  [erro] {str(e)[:90]}")
             time.sleep(4 * tentativa)

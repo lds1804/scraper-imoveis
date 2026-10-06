@@ -34,7 +34,9 @@ import sys
 import time
 import warnings
 
-from cacaimoveis import config, indices
+from cacaimoveis import config, indices, logs
+
+log = logs.obter(__name__)
 
 ITBI_DIR = config.caminho("dados", "itbi")
 
@@ -377,6 +379,7 @@ def main() -> int:
                 limite=args.limite,
             )
         except Exception as e:  # noqa: BLE001
+            log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
             print(f"  {nome[-16:]:>16s}  ERRO: {str(e)[:60]}")
             continue
 

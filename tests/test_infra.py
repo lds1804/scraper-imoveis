@@ -1,10 +1,11 @@
 """Migrações do schema, rotas da ponte e o intervalo da API do ZAP."""
 
+import os
 import sqlite3
 
 import pytest
 
-from cacaimoveis import config, glue_api, migracoes, ponte
+from cacaimoveis import backup, config, glue_api, logs, migracoes, ponte
 
 
 # ---------------------------------------------------------------------------
@@ -115,3 +116,34 @@ def test_api_do_zap_respeita_o_crawl_delay(monkeypatch):
     relogio[0] += 3                           # 3 s depois (ex.: troca de bairro)
     glue_api._respeitar_intervalo()
     assert esperas == [pytest.approx(config.GLUE_DELAY_S - 3)]
+
+
+# ---------------------------------------------------------------------------
+# Log em arquivo e backup
+# ---------------------------------------------------------------------------
+def test_erro_tratado_vai_para_o_arquivo_de_log():
+    log = logs.obter("teste")
+    try:
+        raise ValueError("falha de teste 123")
+    except ValueError as e:
+        log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
+    for h in log.parent.handlers:
+        h.flush()
+    texto = open(os.path.join(os.environ["CACA_LOG_DIR"], "caca.log"), encoding="utf-8").read()
+    assert "falha de teste 123" in texto
+    assert "Traceback" in texto
+
+
+def test_backup_copia_e_rotaciona(tmp_path, monkeypatch):
+    monkeypatch.setattr(backup, "PASTA", str(tmp_path / "backups"))
+    feitos = []
+    for i in range(4):
+        destino = backup.copiar(rotulo=f"t{i}")
+        os.utime(destino, (1000 + i, 1000 + i))   # ordem garantida
+        feitos.append(destino)
+    apagados = backup.rodar(manter=2)
+    assert sorted(apagados) == sorted(feitos[:2])
+    assert backup.listar() == [feitos[3], feitos[2]]
+    conn = sqlite3.connect(feitos[3])
+    assert conn.execute("SELECT COUNT(*) FROM anuncios").fetchone()[0] > 0
+    conn.close()

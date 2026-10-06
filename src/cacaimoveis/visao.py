@@ -26,7 +26,9 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from cacaimoveis import config
+from cacaimoveis import config, logs
+
+log = logs.obter(__name__)
 
 # ---------------------------------------------------------------------------
 # Chave da API (nunca no código)
@@ -470,6 +472,7 @@ def analisar_anuncio(
             return AnaliseFoto.do_json(url, len(imagens), dados)
 
         except Exception as e:  # noqa: BLE001
+            log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
             ultimo_erro = str(e)
             if verbose:
                 print(f"    [erro] {ultimo_erro[:150]}")

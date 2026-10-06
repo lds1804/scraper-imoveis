@@ -25,7 +25,9 @@ from dataclasses import dataclass, field
 
 from bs4 import BeautifulSoup
 
-from cacaimoveis import config
+from cacaimoveis import config, logs
+
+log = logs.obter(__name__)
 
 CARD_SELECTOR = '[data-qa="posting PROPERTY"]'
 
@@ -997,6 +999,7 @@ def _abrir_pagina_listagem(page, url: str) -> str | None:
         try:
             resp = page.goto(url, wait_until="domcontentloaded", timeout=60000)
         except Exception as e:  # noqa: BLE001
+            log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
             print(f"  [erro] falha ao abrir: {e}")
             time.sleep(5 * tentativa)
             continue
@@ -1097,6 +1100,7 @@ def coletar_bairro(page, alvo) -> Iterator[Anuncio]:
                 try:
                     resp = page.goto(url, wait_until="domcontentloaded", timeout=60000)
                 except Exception as e:  # noqa: BLE001
+                    log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
                     print(f"  [erro] falha ao abrir: {e}")
                     time.sleep(5 * tentativa)
                     continue

@@ -35,7 +35,9 @@ import time
 
 import requests
 
-from cacaimoveis import config
+from cacaimoveis import config, logs
+
+log = logs.obter(__name__)
 
 PAGINA = "https://prefeitura.sp.gov.br/web/fazenda/w/acesso_a_informacao/31501"
 ITBI_DIR = config.caminho("dados", "itbi")
@@ -155,6 +157,7 @@ def baixar(anos_pedidos: list[int] | None, forcar: bool = False) -> int:
         try:
             situacao, tam = _baixar_um(ano, url, forcar)
         except Exception as e:  # noqa: BLE001
+            log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
             print(f"  {ano:>5d}  {'ERRO':>10s}  {str(e)[:34]}")
             continue
         total_bytes += tam

@@ -19,6 +19,7 @@ where = ["src"]
 # na raiz). Todos também rodam como `python -m cacaimoveis.<modulo>`.
 [project.scripts]
 caca-web = "cacaimoveis.webapp:main"
+caca-backup = "cacaimoveis.backup:main"
 caca-coletar = "cacaimoveis.coletar_tudo:main"
 caca-imovelweb = "cacaimoveis.main:main"
 caca-zap = "cacaimoveis.zap:main"

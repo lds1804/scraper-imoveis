@@ -22,7 +22,7 @@ import argparse
 import sys
 import time
 
-from cacaimoveis import config, glue_api
+from cacaimoveis import config, glue_api, logs
 from cacaimoveis.progresso import Barra, _duracao, resumo
 from cacaimoveis.scraper_browser import (
     atende_preco,
@@ -32,6 +32,8 @@ from cacaimoveis.scraper_browser import (
     e_de_sao_paulo,
 )
 from cacaimoveis.storage import DB, baixar_fotos
+
+log = logs.obter(__name__)
 
 
 def _filtrar_bairros(alvos: list[str] | None, todos: bool) -> list:
@@ -63,6 +65,7 @@ def dry_run(alvos: list[str] | None, todos: bool, portal: str) -> None:
         try:
             anuncios, total = glue_api.buscar_pagina(bairro.nome, 1, portal=portal)
         except Exception as e:  # noqa: BLE001
+            log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
             print(f"  {bairro.nome:24s} ERRO: {str(e)[:100]}")
             continue
 
@@ -153,6 +156,7 @@ def coletar(alvos: list[str] | None, todos: bool, portal: str,
                     )
                 barra.contar()
         except Exception as e:  # noqa: BLE001
+            log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
             barra.escrever(f"  [erro] {bairro.nome}: {str(e)[:90]}")
 
         barra.escrever(

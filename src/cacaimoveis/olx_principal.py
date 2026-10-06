@@ -24,7 +24,7 @@ import time
 
 from playwright.sync_api import sync_playwright
 
-from cacaimoveis import config, olx
+from cacaimoveis import config, logs, olx
 from cacaimoveis.progresso import Barra, resumo
 from cacaimoveis.scraper_browser import (
     atende_preco,
@@ -35,6 +35,8 @@ from cacaimoveis.scraper_browser import (
     e_de_sao_paulo,
 )
 from cacaimoveis.storage import DB, baixar_fotos
+
+log = logs.obter(__name__)
 
 
 def _fechar_sessao(estado: dict) -> None:
@@ -232,6 +234,7 @@ def coletar(alvos: list[str] | None, todos: bool, com_detalhes: bool,
                         )
                     barra.contar()
             except Exception as e:  # noqa: BLE001
+                log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
                 erro = e
 
             if erro is None:

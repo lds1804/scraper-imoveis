@@ -28,10 +28,12 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from cacaimoveis import config
+from cacaimoveis import config, logs
 from cacaimoveis.progresso import Barra
 from cacaimoveis.storage import DB
 from cacaimoveis.visao import AnaliseFoto, analisar_anuncio, obter_api_key, tem_api_key
+
+log = logs.obter(__name__)
 
 # ---------------------------------------------------------------------------
 # Custo em tokens, MEDIDO na API (2026-10-03) — não estimado.
@@ -422,6 +424,7 @@ def main() -> None:
                         try:
                             a = fut.result()
                         except Exception as e:  # noqa: BLE001
+                            log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
                             a = AnaliseFoto(url=row["url"], ok=False, erro=str(e)[:300])
                         _soma_gasto(row, fotos, a.ok)
                         _registra(row, a)

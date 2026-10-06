@@ -45,7 +45,9 @@ import sqlite3
 import sys
 import time
 
-from cacaimoveis import config, endereco, indices, migracoes
+from cacaimoveis import config, endereco, indices, logs, migracoes
+
+log = logs.obter(__name__)
 
 # o console do PowerShell 5.1 usa cp1252 e derruba o script em qualquer caractere
 # fora dessa tabela. Melhor degradar com '?' do que perder a execução inteira.
@@ -644,6 +646,7 @@ def calcular(conn: sqlite3.Connection, reaj: indices.Reajustador,
         try:
             res = comparar_anuncio(conn, a, reaj)
         except Exception as e:  # noqa: BLE001
+            log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
             if verbose:
                 print(f"  [erro] {a['url'][-40:]}: {str(e)[:70]}")
             continue
