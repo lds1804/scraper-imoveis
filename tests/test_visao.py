@@ -108,3 +108,54 @@ def test_resposta_sem_json_nao_e_transitoria(monkeypatch, fotos):
     _falso_claude(monkeypatch, {"is_error": False, "result": "não sei"}, [])
     a = visao.analisar_anuncio("u", fotos, verbose=False, provedor="claude")
     assert not a.ok and not a.transitorio
+
+
+# ---------------------------------------------------------------------------
+# Falhar rápido quando o transporte não funciona (login, rede)
+# ---------------------------------------------------------------------------
+def test_checagem_de_login_explica_o_que_fazer(monkeypatch):
+    monkeypatch.setattr(visao, "achar_claude", lambda: "claude")
+    monkeypatch.setattr(visao.subprocess, "run", lambda *a, **k: types.SimpleNamespace(
+        returncode=1, stdout=json.dumps({"is_error": True, "result": "Not logged in"}), stderr=""))
+    msg = visao.verificar_login_claude()
+    assert "não está logado" in msg and "/login" in msg and "deepseek" in msg
+
+
+def test_checagem_de_login_passa_quando_responde(monkeypatch):
+    monkeypatch.setattr(visao, "achar_claude", lambda: "claude")
+    monkeypatch.setattr(visao.subprocess, "run", lambda *a, **k: types.SimpleNamespace(
+        returncode=0, stdout=json.dumps({"is_error": False, "result": "ok"}), stderr=""))
+    assert visao.verificar_login_claude() is None
+
+
+def test_lote_nao_comeca_sem_login(monkeypatch, capsys):
+    from cacaimoveis import analisar_visao as av
+
+    chamadas = []
+    monkeypatch.setattr(av, "verificar_login_claude", lambda: "o Claude Code não está logado.")
+    monkeypatch.setattr(av, "analisar_anuncio", lambda *a, **k: chamadas.append(1))
+    monkeypatch.setattr(av, "provedor_pronto", lambda p: None)
+    monkeypatch.setattr("sys.argv", ["caca-visao", "--provedor", "claude", "--limite", "20"])
+    assert av.main() == 1
+    assert chamadas == []
+    assert "não iniciada" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("paralelo", [1, 3])
+def test_lote_aborta_depois_de_falhas_de_transporte_seguidas(monkeypatch, capsys, paralelo):
+    from cacaimoveis import analisar_visao as av
+
+    chamadas = []
+
+    def falha(url, fotos, **kw):
+        chamadas.append(url)
+        return visao.AnaliseFoto(url=url, ok=False, erro="rede caiu", transitorio=True)
+
+    monkeypatch.setattr(av, "verificar_login_claude", lambda: None)
+    monkeypatch.setattr(av, "provedor_pronto", lambda p: None)
+    monkeypatch.setattr(av, "analisar_anuncio", falha)
+    monkeypatch.setattr(config, "VISAO_CLAUDE_PARALELO", paralelo)
+    monkeypatch.setattr("sys.argv", ["caca-visao", "--provedor", "claude", "--limite", "40"])
+    assert av.main() == 1
+    assert av.FALHAS_SEGUIDAS_MAX <= len(chamadas) < 40
+    assert "ABORTADO" in capsys.readouterr().out

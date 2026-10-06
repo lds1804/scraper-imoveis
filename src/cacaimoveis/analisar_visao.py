@@ -32,7 +32,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from cacaimoveis import config, logs
 from cacaimoveis.progresso import Barra
 from cacaimoveis.storage import DB
-from cacaimoveis.visao import AnaliseFoto, analisar_anuncio, provedor_pronto
+from cacaimoveis.visao import AnaliseFoto, analisar_anuncio, provedor_pronto, verificar_login_claude
 
 log = logs.obter(__name__)
 
@@ -69,6 +69,11 @@ def _e_peak(quando=None) -> bool:
     if utc.weekday() >= 5:                      # sábado/domingo: sempre barato
         return False
     return (1 <= utc.hour < 4) or (6 <= utc.hour < 10)
+
+
+# Falhas de TRANSPORTE seguidas (login, rede, timeout) que abortam o lote. O
+# anúncio não tem culpa e a próxima falha seria igual: insistir só gasta tempo.
+FALHAS_SEGUIDAS_MAX = 5
 
 
 class _TetoAtingido(Exception):
@@ -168,6 +173,11 @@ def main() -> int:
     if falta:
         print(falta)
         return 1
+    if not deepseek:
+        sem_login = verificar_login_claude()
+        if sem_login:
+            print(f"Análise das fotos não iniciada: {sem_login}")
+            return 1
 
     db = DB()
 
@@ -300,7 +310,7 @@ def main() -> int:
             return 1
     print()
 
-    n_ok = n_falha = 0
+    n_ok = n_falha = falhas_seguidas = 0
     destaques_quintal = 0
     reaproveitados = 0
     gasto_brl = 0.0     # acumulado em tempo real, pelo que foi REALMENTE enviado
@@ -383,8 +393,12 @@ def main() -> int:
 
     def _registra(row, a) -> None:
         """Atualiza contadores e, se houver algo marcante, escreve na tela."""
-        nonlocal n_ok, n_falha, destaques_quintal
+        nonlocal n_ok, n_falha, destaques_quintal, falhas_seguidas
         resultados[row["url"]] = a
+        if a.ok:
+            falhas_seguidas = 0
+        elif a.transitorio:
+            falhas_seguidas += 1
         if a.ok:
             n_ok += 1
             if a.quintal_terra:
@@ -411,6 +425,7 @@ def main() -> int:
         print(f"[verbose] {len(tarefas_fotos)} chamada(s) à API, {workers} em paralelo")
 
     interrompido_por_teto = False
+    abortado = False
     try:
         if workers == 1:
             for row, fotos in tarefas_fotos:
@@ -419,6 +434,9 @@ def main() -> int:
                 _soma_gasto(row, fotos, a.ok)
                 _registra(row, a)
                 barra.passo(a.ok)
+                if falhas_seguidas >= FALHAS_SEGUIDAS_MAX:
+                    abortado = True
+                    break
                 if deepseek and config.VISAO_DELAY_S:
                     time.sleep(config.VISAO_DELAY_S)
         else:
@@ -443,6 +461,11 @@ def main() -> int:
                         _soma_gasto(row, fotos, a.ok)
                         _registra(row, a)
                         barra.passo(a.ok)
+                        if falhas_seguidas >= FALHAS_SEGUIDAS_MAX:
+                            abortado = True
+                            for f in futuros:
+                                f.cancel()
+                            break
                         if teto_brl > 0 and gasto_brl >= teto_brl:
                             interrompido_por_teto = True
                             pendentes_no_pool = [
@@ -488,6 +511,10 @@ def main() -> int:
     if deepseek:
         print(f"Gasto (no horário)     : R$ {gasto_brl:.2f}"
               + (f"  de R$ {teto_brl:.2f}" if teto_brl > 0 else ""))
+    if abortado:
+        print("")
+        print(f"*** ABORTADO: {FALHAS_SEGUIDAS_MAX} falhas seguidas de login/rede ***")
+        print("    Nada foi gravado como falha: o que faltou será tentado na próxima rodada.")
     if interrompido_por_teto:
         print("")
         print("*** PARADO PELO TETO DE GASTO ***")
@@ -499,7 +526,7 @@ def main() -> int:
     db.close()
     # tudo falhou = algo está errado (login, chave, rede): sinaliza para quem
     # chamou (o `caca-atualizar`) em vez de seguir como se tivesse dado certo
-    return 1 if n_falha and not n_ok else 0
+    return 1 if (n_falha and not n_ok) or abortado else 0
 
 
 if __name__ == "__main__":

@@ -292,6 +292,12 @@ Depois de ver todas, siga as instruções abaixo.
 """
 
 
+def _sem_login(texto: str) -> bool:
+    """A mensagem do Claude Code diz que não há login?"""
+    t = texto.lower()
+    return "logged in" in t or "login" in t
+
+
 def achar_claude() -> str | None:
     """Caminho do executável do Claude Code, ou None se não houver.
 
@@ -360,10 +366,41 @@ def _chamar_claude(caminhos: list[str], texto_prompt: str) -> str:
             f"{(proc.stdout or proc.stderr)[:300]}") from None
     if saida.get("is_error"):
         texto = str(saida.get("result") or saida.get("terminal_reason") or "erro")
-        if "login" in texto.lower():
+        if _sem_login(texto):
             texto += " — abra um terminal e rode o claude.exe uma vez para fazer login"
         raise RuntimeError(f"claude: {texto[:300]}")
     return str(saida.get("result") or "")
+
+
+def verificar_login_claude() -> str | None:
+    """None se o Claude Code está logado e responde; senão, o que fazer.
+
+    Uma chamada mínima, sem ferramentas e sem ler foto, ANTES de começar um
+    lote. Sem isto, o lote inteiro falhava anúncio a anúncio com "Not logged
+    in" (1.286 anúncios x 3 tentativas = ~2 horas) sem avisar que bastava
+    fazer o login.
+    """
+    binario = achar_claude()
+    if not binario:
+        return "Claude Code CLI não encontrado (defina CACA_CLAUDE_BIN)."
+    try:
+        proc = subprocess.run(
+            [binario, "-p", "Responda apenas: ok", "--model", config.VISAO_CLAUDE_MODELO,
+             "--tools", "", "--output-format", "json", "--no-session-persistence",
+             "--strict-mcp-config"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=90, cwd=tempfile.gettempdir())
+        saida = json.loads(proc.stdout)
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError) as e:
+        return f"o Claude Code não respondeu ({type(e).__name__})."
+    if saida.get("is_error"):
+        texto = str(saida.get("result") or "erro")
+        if _sem_login(texto):
+            return ("o Claude Code não está logado. Abra um terminal, rode `claude` "
+                    "(o executável fica em %APPDATA%\\Claude\\claude-code\\...), "
+                    "faça `/login` e rode de novo. Ou use `--provedor deepseek`.")
+        return f"o Claude Code respondeu com erro: {texto[:200]}"
+    return None
 
 
 def provedor_pronto(provedor: str) -> str | None:
