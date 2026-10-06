@@ -36,7 +36,10 @@ def main() -> int:
     print("  1. digite  /login  e conclua no navegador")
     print("  2. volte aqui e digite  /exit")
     print()
-    input("Pressione Enter para abrir... ")
+    try:
+        input("Pressione Enter para abrir... ")
+    except EOFError:
+        pass        # sem teclado (execução automática): segue direto
     # herda o terminal: é uma sessão interativa de verdade
     subprocess.call([binario])
 
