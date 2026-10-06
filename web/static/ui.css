@@ -1,0 +1,213 @@
+/*
+  Camada visual da listagem (2026-10). Carregada DEPOIS de style.css e
+  comp.css: reaproveita os tokens de cor de lá e redefine só o que muda.
+
+  O que mudou e por quê:
+  - o card tinha 5-6 selos pequenos competindo (desconto, mediana, venal,
+    cadastro, título longo). Agora: preço e R$/m² no topo, onde fica a
+    casa, as características, e as referências de valor numa tabela curta
+    de linhas iguais — comparar de relance é o objetivo da listagem;
+  - a nota de encaixe virou um anel sobre a foto (é o critério da ordem);
+  - o painel de filtros deixou de ser fixo: grudado no topo ele ocupava um
+    terço da tela ao rolar a lista. O cabeçalho continua fixo.
+*/
+
+:root {
+  --bg: #f3f4f6;
+  --fonte: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --r-card: 14px;
+}
+
+body {
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- cabeçalho ----------------------------------------------------------- */
+.topbar {
+  background: var(--accent-2);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .06) inset, 0 1px 12px var(--sombra-topbar);
+}
+.marca { letter-spacing: -.01em; }
+.marca-sub {
+  text-transform: none; letter-spacing: 0; font-weight: 500;
+  opacity: .72; font-size: .82rem;
+}
+
+/* ---- filtros ------------------------------------------------------------- */
+.painel-filtros {
+  position: static;              /* ver o cabeçalho deste arquivo */
+  background: transparent;
+  border: 0; box-shadow: none;
+  padding: 18px 22px 0;
+  max-width: 1440px; margin: 0 auto;
+}
+.filtros {
+  background: var(--card);
+  border: 1px solid var(--linha);
+  border-radius: var(--r-card);
+  box-shadow: var(--sombra-1);
+  padding: 16px 18px 12px;
+}
+.filtros label, .multi-rotulo {
+  font-size: .72rem; font-weight: 600; letter-spacing: .02em;
+  color: var(--muted);
+}
+.filtros input, .filtros select, .multi-botao {
+  border-radius: 10px;
+  background: var(--bg);
+  border-color: transparent;
+  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.filtros input:hover, .filtros select:hover, .multi-botao:hover { background: #eceef1; }
+.filtros input:focus, .filtros select:focus, .multi-botao:focus-visible {
+  background: #fff; border-color: var(--accent-borda);
+  box-shadow: 0 0 0 3px var(--anel-foco);
+}
+.filtros-linha.opcoes { border-top: 1px dashed var(--linha); padding-top: 12px; margin-top: 4px; }
+.filtros .check {
+  border-radius: var(--r-full);
+  background: var(--bg); border-color: transparent;
+}
+.filtros .check:has(input:checked) {
+  background: var(--accent-claro); border-color: var(--accent-borda); color: var(--accent);
+}
+.chips { padding: 12px 2px 0; }
+
+/* ---- contagem e paginação ------------------------------------------------ */
+.resultados { max-width: 1440px; margin: 0 auto; padding: 18px 22px 0; }
+.resultados .contagem { font-size: .95rem; }
+.resultados .contagem b { font-size: 1.15rem; color: var(--texto); }
+.paginacao { padding: 6px 22px 48px; }
+
+/* ---- grade --------------------------------------------------------------- */
+.grid {
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 20px;
+  padding: 14px 22px 28px;
+}
+
+/* ---- card ---------------------------------------------------------------- */
+.card {
+  border-radius: var(--r-card);
+  border-color: transparent;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .04);
+}
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(16, 24, 40, .12), 0 2px 6px rgba(16, 24, 40, .06);
+}
+.thumb { aspect-ratio: 3 / 2; }
+
+/* anel da nota de encaixe, sobre a foto */
+.selo-encaixe {
+  --cor: var(--muted);
+  position: absolute; top: 10px; left: 10px; z-index: 2;
+  width: 44px; height: 44px; border-radius: 50%;
+  display: grid; place-items: center;
+  background:
+    radial-gradient(closest-side, rgba(255, 255, 255, .96) 76%, transparent 78% 100%),
+    conic-gradient(var(--cor) calc(var(--n) * 1%), rgba(255, 255, 255, .55) 0);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+}
+.selo-encaixe b { font-size: .86rem; font-weight: 700; color: var(--texto); }
+.selo-encaixe.medio { --cor: var(--quente); }
+.selo-encaixe.alto { --cor: var(--verde); }
+
+/* o link ocupa o resto do card, para o rodapé alinhar entre cards da linha */
+.card-link { flex: 1; display: flex; flex-direction: column; }
+.info { gap: 10px; padding: 14px 16px 16px; }
+
+.card-topo { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.card-topo .preco {
+  font-size: 1.32rem; font-weight: 700; letter-spacing: -.02em;
+  color: var(--texto); font-variant-numeric: tabular-nums;
+}
+.preco-m2 { font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.local {
+  margin: 0; display: flex; align-items: center; gap: 5px;
+  font-size: .84rem; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.local b { color: var(--texto-2); font-weight: 600; }
+.local span { overflow: hidden; text-overflow: ellipsis; }
+.local .ico { flex: none; width: 14px; height: 14px; }
+
+.card .specs { gap: 4px 12px; font-size: .82rem; color: var(--texto-2); }
+.card .specs li { background: none; border: 0; padding: 0; }
+.card .specs li.destaque { color: var(--verde); font-weight: 600; }
+
+/* referências de valor: uma linha por fonte, mesmo formato */
+.valores {
+  margin: 2px 0 0; padding: 8px 0 0;
+  border-top: 1px solid var(--linha);
+  display: grid; gap: 5px;
+}
+.v-linha {
+  display: grid; grid-template-columns: 78px 1fr auto;
+  align-items: baseline; gap: 8px;
+  font-size: .82rem;
+}
+.v-linha dt { color: var(--muted); font-weight: 500; }
+.v-linha dd {
+  margin: 0; color: var(--texto); font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+}
+.v-linha .pct { font-weight: 500; color: var(--muted); font-size: .76rem; }
+.v-linha.atencao dd, .v-linha.divergente dd { color: var(--alerta); }
+.delta {
+  font-size: .74rem; font-weight: 700; padding: 1px 7px;
+  border-radius: var(--r-full);
+}
+.delta.abaixo { color: var(--verde-2); background: var(--verde-claro); }
+.delta.acima { color: var(--alerta); background: var(--alerta-claro); }
+
+/* confiança da comparação: 1 a 3 tracinhos */
+.conf { display: inline-flex; gap: 2px; align-self: center; }
+.conf i { width: 4px; height: 10px; border-radius: 2px; background: var(--linha-forte); }
+.conf-baixa i:nth-child(1),
+.conf-media i:nth-child(-n+2),
+.conf-alta i { background: var(--accent-3); }
+
+/* análise das fotos, numa linha */
+.card .visao {
+  display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 4px 12px;
+  margin-top: 0; padding: 0; background: none; border: 0; border-radius: 0;
+  font-size: .76rem; color: var(--muted);
+}
+.card .visao .ico { color: var(--accent-3); }
+.card .visao .nota { display: inline-flex; align-items: center; gap: 4px; }
+.card .visao-problemas {
+  display: flex; align-items: center; gap: 5px;
+  padding: 0; background: none; border: 0;
+  font-size: .76rem; font-weight: 600; color: var(--alerta);
+}
+
+.card-rodape { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 2px; }
+.tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: .74rem; font-weight: 500;
+  padding: 3px 9px; border-radius: var(--r-full);
+  background: var(--bg); color: var(--texto-2);
+}
+.tag-ok { background: var(--verde-claro); color: var(--verde-2); }
+.tag-nao { color: var(--muted); }
+.card-copias { background: var(--accent-claro); color: var(--accent); }
+
+@media (max-width: 720px) {
+  .painel-filtros, .resultados { padding-left: 14px; padding-right: 14px; }
+  .grid { grid-template-columns: 1fr; padding: 12px 14px 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card, .card:hover { transition: none; transform: none; }
+}
+
+/* ---- página do anúncio --------------------------------------------------- */
+.tabela-venal { width: 100%; border-collapse: collapse; font-size: .84rem; margin: 4px 0 10px; }
+.tabela-venal th { text-align: left; font-weight: 500; color: var(--muted); padding: 5px 8px 5px 0; }
+.tabela-venal td { padding: 5px 0; color: var(--texto-2); font-variant-numeric: tabular-nums; }
+.tabela-venal td:last-child { text-align: right; font-weight: 600; color: var(--texto); }
+.tabela-venal tr + tr { border-top: 1px solid var(--linha); }

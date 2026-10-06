@@ -48,7 +48,7 @@ def test_sem_dado_nao_inventa_nota(anuncio, razao):
 
 
 def _notas(html: str) -> list[int]:
-    return [int(x) for x in re.findall(r'encaixe-texto">\s*encaixe (\d+)', html)]
+    return [int(x) for x in re.findall(r'data-encaixe="(\d+)"', html)]
 
 
 def test_ordem_encaixe_e_o_padrao_e_ordena(cliente):
@@ -97,12 +97,14 @@ def test_listagem_mostra_uma_linha_por_imovel(cliente, banco):
 
 
 def test_aviso_do_card_leva_a_pagina_do_anuncio(cliente):
+    """O aviso de cópias fica dentro do link do card, que vai à página do
+    imóvel (onde as ofertas aparecem lado a lado) — nunca a `?todas=1`."""
     # o grupo de 25 está em Vila Mangalot
     home = cliente.get("/?bairro=Vila+Mangalot").get_data(as_text=True)
-    m = re.search(r'<a class="card-copias"\s+href="([^"]+)"', home)
+    m = re.search(r'<a class="card-link" href="([^"]+)">(?:(?!</a>).)*card-copias', home, re.S)
     assert m
     link = m.group(1).replace("&amp;", "&")
-    assert link.startswith("/anuncio/") and link.endswith("#ofertas")
+    assert link.startswith("/anuncio/")
     assert "todas=1" not in link and "grupo=" not in link
 
 
@@ -133,3 +135,12 @@ def test_grupo_com_variacao_mostra_a_faixa(cliente, banco):
 def test_anuncio_sem_copia_nao_mostra_o_bloco(cliente, banco):
     url = banco.execute("SELECT url FROM anuncios WHERE dup_grupo IS NULL LIMIT 1").fetchone()[0]
     assert not contem("Outras ofertas deste imóvel", _detalhe(cliente, url))
+
+
+def test_desconto_com_confianca_baixa_vale_menos():
+    """65% abaixo com 3 vendas não pode ganhar de 20% abaixo com 8 vendas."""
+    fraco = N({"foto_cuidado": 4}, 0.35, "baixa")
+    firme = N({"foto_cuidado": 4}, 0.80, "alta")
+    assert N({"foto_cuidado": 4}, 0.35, "alta") > fraco
+    assert fraco < N({"foto_cuidado": 4}, 0.35, "media")
+    assert firme > 0

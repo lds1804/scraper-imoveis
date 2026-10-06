@@ -44,7 +44,8 @@ so agreement between them means something:
 |---|---|---|---|
 | **Market** | ITBI (real transactions) | "does it ask above or below what actually trades here?" | 83% |
 | **Cadastral** | GeoSampa fiscal register | "does the stated floor area match the city's record?" | 46% |
-| **Tax value** | ITBI (venal / price ratio) | "how does it compare to the IPTU base?" | 100% |
+| **Official venal (IPTU)** | open IPTU register + the formula of Law 10.235/86 | "what does the city assess it at?" — independent of the asking price | 79% (20% the exact lot) |
+| **ITBI reference value (VVR)** | ITBI (VVR / price ratio per region) | "what is the minimum ITBI base here?" | 100% |
 
 ---
 
@@ -169,6 +170,32 @@ committed.** Only `deepseek-flash` supports image input.
 is also `python -m cacaimoveis.<module>`, and they work from any directory:
 all data paths are resolved from the project root through `config.caminho(...)`.
 
+**Everything at once** — the daily routine, in order (backup, new ads,
+photos, duplicates, address inheritance, photo analysis, ITBI, VVR, IPTU
+venal, cadastral area). Steps that fail are reported and the rest go on:
+
+```bash
+caca-atualizar                       # daily
+caca-atualizar --completo            # monthly: new ITBI sheets, model refits, yearly IPTU
+caca-atualizar --provedor deepseek   # photo analysis through the DeepSeek API
+caca-atualizar --listar              # show the plan only
+```
+
+**Photo analysis** runs through the Claude Code CLI by default (`claude -p`,
+using the subscription that is logged in on this machine — run `claude` once
+in a terminal and `/login`). `--provedor deepseek` or `CACA_VISAO=deepseek`
+switches to the DeepSeek API (needs `DEEPSEEK_API_KEY`, has a spending cap).
+
+**Yearly: the IPTU register.** The official venal value is computed from the
+city's open IPTU register, published once a year on GeoSampa. The site blocks
+scripted downloads, so it is a manual step: `caca-atualizar --completo` warns
+when the current year's file is missing and prints the link. Download
+`IPTU_<year>.zip` (GeoSampa > Download de Arquivos > 12_Cadastro > IPTU_INTER >
+XLS_CSV) into `dados/iptu/`; the next `--completo` run ingests it.
+`caca-iptu --situacao` shows what is loaded.
+
+Individual steps:
+
 ```bash
 caca-imovelweb --listar       # see the configured neighborhoods
 caca-imovelweb --dry-run      # sanity-check the scraping access first
@@ -189,6 +216,7 @@ caca-modelo-casa --ajustar    # land + building model
 caca-valor-venal --ajustar    # venal / market ratio per region
 caca-geosampa --ingerir       # city fiscal register (WFS, no key)
 caca-referencia-geosampa --calcular   # area cross-check
+caca-iptu --ingerir           # yearly IPTU register -> official venal value
 
 caca-web                      # http://127.0.0.1:5000
 ```
@@ -200,7 +228,9 @@ Environment variables (all optional):
 | `CACA_AMBIENTE` | `local` | `producao` turns off Flask debug and the `/_ponte/*` routes |
 | `CACA_DB` | `imoveis.db` | database file (the deployed site reads the slim `site.db`) |
 | `CACA_FOTOS` | `fotos/` | photo folder |
-| `DEEPSEEK_API_KEY` | — | vision analysis |
+| `CACA_VISAO` | `claude` | photo analysis provider: `claude` (CLI) or `deepseek` |
+| `CACA_CLAUDE_BIN` | auto | path to `claude.exe` if it is not on PATH |
+| `DEEPSEEK_API_KEY` | — | DeepSeek photo analysis |
 
 ---
 

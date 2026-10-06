@@ -68,7 +68,8 @@ def resolver_bairros(conn: sqlite3.Connection, valores: list[str]) -> list[str]:
     return saida
 
 
-def nota_encaixe(a: dict, razao: float | None) -> float | None:
+def nota_encaixe(a: dict, razao: float | None,
+                 confianca: str | None = None) -> float | None:
     """Nota de encaixe: desconto + conservação, medidos nas fotos.
 
     Por que somar em vez de escolher um: medido em 1.384 anúncios, a
@@ -96,6 +97,8 @@ def nota_encaixe(a: dict, razao: float | None) -> float | None:
     # (razão 0,3 costuma ser erro de dado ou imóvel em péssimo estado, não
     # oportunidade — e já está marcado como divergente na conferência de área)
     desc = max(0.0, min(config.ENCAIXE_DESCONTO_MAX, 1.0 - razao))
+    # desconto apoiado em poucas vendas vale menos (ver ENCAIXE_PESO_CONFIANCA)
+    desc *= config.ENCAIXE_PESO_CONFIANCA.get(confianca or "", 1.0)
     # conservação: 1 -> 0,00 · 2 -> 0,25 · 3 -> 0,50 · 4 -> 0,75 · 5 -> 1,00
     cons = max(0.0, min(1.0, (float(cuidado) - 1) / 4.0))
 
@@ -115,9 +118,9 @@ def registrar_funcoes(conn: sqlite3.Connection) -> None:
     (uma só, em Python) roda dentro do `ORDER BY`, e o `LIMIT` volta a valer.
     """
     conn.create_function(
-        "nota_encaixe", 3,
-        lambda razao, cuidado, problemas: nota_encaixe(
-            {"foto_cuidado": cuidado, "foto_problemas": problemas}, razao),
+        "nota_encaixe", 4,
+        lambda razao, cuidado, problemas, confianca: nota_encaixe(
+            {"foto_cuidado": cuidado, "foto_problemas": problemas}, razao, confianca),
         deterministic=True,
     )
 
@@ -192,9 +195,9 @@ def montar_consulta(conn: sqlite3.Connection, f: Filtros, tem_comp: bool,
     que a tabela de comparações existe. O LEFT JOIN é necessário (não INNER)
     para que quem NÃO tem comparação continue aparecendo — só vai para o fim.
     """
-    razao = "c.razao" if tem_comp else "NULL"
-    sql = (f"SELECT a.*, nota_encaixe({razao}, a.foto_cuidado, a.foto_problemas)"
-           " AS _nota FROM anuncios a ")
+    razao, confianca = ("c.razao", "c.confianca") if tem_comp else ("NULL", "NULL")
+    sql = (f"SELECT a.*, nota_encaixe({razao}, a.foto_cuidado, a.foto_problemas, "
+           f"{confianca}) AS _nota FROM anuncios a ")
     if tem_comp:
         sql += "LEFT JOIN comparacoes c ON c.anuncio_url = a.url "
     # anúncio que saiu do ar não está à venda: fica fora da listagem

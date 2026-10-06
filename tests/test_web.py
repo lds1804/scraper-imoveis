@@ -241,8 +241,8 @@ def test_anuncio_inexistente_devolve_404(cliente):
 
 def test_medidas_de_valor_aparecem(cliente):
     h = _texto(cliente.get("/"))
-    assert "do preço praticado" in h
-    assert "valor venal" in h
+    assert "Mercado" in h and 'class="delta' in h
+    assert "Venal IPTU" in h
     # a chave interna da região não pode vazar para a tela
     assert not contem("cep5:", h) and not contem("cep4:", h)
 
@@ -302,3 +302,12 @@ def test_anuncio_que_saiu_do_ar_some_da_listagem(app, banco):
         rw.execute("UPDATE anuncios SET removido_em = NULL WHERE url = ?", (url,))
         rw.commit()
         rw.close()
+
+
+def test_pagina_do_anuncio_mostra_o_venal_do_iptu(cliente, banco):
+    url = banco.execute(
+        "SELECT anuncio_url FROM venal_iptu WHERE nivel = 'lote' LIMIT 1").fetchone()[0]
+    h = _texto(cliente.get("/anuncio/" + urllib.parse.quote(url, safe="")))
+    assert "Valor venal (IPTU 2026)" in h
+    assert "este imóvel" in h and "construído em" in h
+    assert "Valor de referência do ITBI" in h

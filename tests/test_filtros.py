@@ -28,8 +28,9 @@ def test_ordem_encaixe_bate_com_a_formula_em_python(banco):
     linhas = banco.execute(sql.replace("SELECT a.*", "SELECT a.*, c.razao AS _r", 1),
                            params).fetchall()
     notas = [r["_nota"] for r in linhas]
+    confs = dict(banco.execute("SELECT anuncio_url, confianca FROM comparacoes").fetchall())
     for r in linhas:
-        assert r["_nota"] == flt.nota_encaixe(dict(r), r["_r"])
+        assert r["_nota"] == flt.nota_encaixe(dict(r), r["_r"], confs.get(r["url"]))
     com_nota = [n for n in notas if n is not None]
     assert com_nota == sorted(com_nota, reverse=True)
     # quem não tem nota vai para o fim

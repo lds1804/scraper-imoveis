@@ -6,6 +6,10 @@
   <title>{{ a.titulo or 'Anúncio' }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='comp.css') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="{{ url_for('static', filename='ui.css') }}">
 </head>
 <body>
   <header class="topbar">
@@ -507,12 +511,53 @@
         </div>
       {% endif %}
 
-      {% if a.venal %}
-        {# O valor venal NÃO é publicado por imóvel: é projetado a partir da
-           razão venal/mercado da região, medida em 112 mil pares de
-           transações do ITBI. Referência tributária, não de mercado. #}
+      {% if a.iptu %}
+        {# Venal OFICIAL do IPTU: a fórmula da Lei 10.235/86 aplicada aos
+           valores unitários do cadastro aberto da prefeitura (ver iptu.py).
+           Não usa o preço do anúncio — por isso pode dizer se o pedido está
+           muito acima do que a prefeitura avalia. #}
+        {% set v = a.iptu %}
         <div class="bloco">
-          <h2 class="bloco-titulo">{{ ic.icone('banco') }} Valor venal</h2>
+          <h2 class="bloco-titulo">{{ ic.icone('banco') }} Valor venal (IPTU {{ v.ano_base }})</h2>
+          <ul class="specs grande">
+            <li>{{ ic.icone('banco') }} {{ v.valor_venal | moeda }}
+              {% if v.pct_do_preco %}<span class="fraco">({{ v.pct_do_preco | round | int }}% do pedido)</span>{% endif %}
+            </li>
+          </ul>
+          <table class="tabela-venal">
+            <tr><th>Terreno</th>
+                <td>{{ v.area_terreno | m2 }} × {{ v.v_m2_terreno | moeda }}/m²</td>
+                <td>{{ v.venal_terreno | moeda }}</td></tr>
+            <tr><th>Construção</th>
+                <td>{{ v.area_construida | m2 }} × {{ v.v_m2_construcao | moeda }}/m²
+                    × {{ '%.2f' | format(v.fator_obsolescencia) | replace('.', ',') }} (idade)</td>
+                <td>{{ v.venal_construcao | moeda }}</td></tr>
+          </table>
+          <p class="bloco-nota">
+            {% if v.nivel == 'lote' %}
+              Calculado para <b>este imóvel</b>, encontrado no cadastro da
+              prefeitura pelo endereço{% if v.ano_construcao %} (construído em
+              <b>{{ v.ano_construcao }}</b>{% if v.padrao %}, {{ v.padrao | lower }}{% endif %}){% endif %}.
+              {% if v.esquina %}É lote de <b>esquina</b>: o fator de esquina não
+              entra na conta, e o venal oficial pode ser até 30% maior no terreno.{% endif %}
+            {% else %}
+              O anúncio não informa o número (ou ele não bate com o cadastro):
+              é a mediana de <b>{{ v.n_lotes }} casas de tamanho parecido</b>
+              {% if v.nivel == 'rua' %}na mesma rua{% else %}no mesmo CEP{% endif %}.
+            {% endif %}
+            Fórmula da Lei 10.235/86 sobre o cadastro aberto do IPTU
+            (valor do m² da Planta Genérica de Valores, fator de profundidade,
+            obsolescência). É a base do <b>IPTU</b>, não preço de mercado.
+          </p>
+        </div>
+      {% endif %}
+
+      {% if a.venal %}
+        {# Valor venal de REFERÊNCIA (VVR), a base do ITBI: projetado da razão
+           VVR/preço medida nas transações da região. Fica perto do mercado e
+           costuma ser maior que o venal do IPTU. #}
+        <div class="bloco">
+          <h2 class="bloco-titulo">{{ ic.icone('banco') }} Valor de referência do ITBI</h2>
           <ul class="specs grande">
             <li>{{ ic.icone('banco') }} ~{{ a.venal.valor_venal | moeda }}
               <span class="fraco">({{ (a.venal.razao * 100) | round | int }}% do pedido)</span>
@@ -537,16 +582,15 @@
               O anúncio não informa o CEP, e a rua não tem transações
               suficientes para deduzi-lo com segurança.
             {%- endif %}
-            A prefeitura <b>não divulga</b> o valor venal por imóvel — este
-            número é projetado, não consultado. Serve para comparar com o IPTU
-            e ver se o pedido está acima do que a prefeitura avalia;
-            <b>não</b> substitui a comparação com preços praticados.
+            É o <b>valor venal de referência</b> (VVR) que a prefeitura usa como
+            base mínima do ITBI (3% sobre o maior entre ele e o preço). É uma
+            projeção pela região, não uma consulta do imóvel.
           </p>
         </div>
       {% endif %}
 
       <a class="botao" href="{{ a.url }}" target="_blank" rel="noopener">
-        {{ ic.icone('expandir') }} Ver no imovelweb
+        {{ ic.icone('expandir') }} Ver no {{ {'zap': 'ZAP Imóveis', 'vivareal': 'Viva Real', 'olx': 'OLX', 'quintoandar': 'QuintoAndar'}.get(a.portal, 'Imovelweb') }}
       </a>
     </aside>
   </main>

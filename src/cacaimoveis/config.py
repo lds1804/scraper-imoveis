@@ -148,6 +148,12 @@ ENCAIXE_PENAL_PROBLEMA = 0.15
 # Sem análise visual, o anúncio NÃO é penalizado nem premiado: vai para o fim
 # da ordem (não dá para julgar conservação sem ter olhado a foto).
 ENCAIXE_DESCONTO_MAX = 0.5       # desconto acima disso não conta mais
+# Quanto do desconto vale conforme a CONFIANÇA da comparação com o ITBI.
+# Medido em 2026-10-06: 48% das comparações têm confiança "baixa" (~3
+# vendas de base), e sem este peso elas lideravam a ordem padrão — o topo da
+# lista era "65% abaixo · confiança baixa". Um desconto apoiado em poucas
+# vendas é uma pista, não uma certeza.
+ENCAIXE_PESO_CONFIANCA = {"alta": 1.0, "media": 0.8, "baixa": 0.5}
 
 # ---------------------------------------------------------------------------
 # Rede / polite scraping

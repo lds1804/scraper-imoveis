@@ -186,6 +186,23 @@ def criar(caminho: str) -> None:
             "origem_cep": "portal" if a["cep"] else "rua",
         })
 
+    # --- venal do IPTU (2 de cada 3), por lote e pela rua ---------------------
+    for k, a in enumerate(anuncios):
+        if k % 3 == 2:
+            continue
+        terreno, construcao = 400.0 * (a["area_terreno"] or 150), 1800.0 * a["area_construida"]
+        _inserir(conn, "venal_iptu", {
+            "anuncio_url": a["url"], "nivel": "lote" if k % 3 == 0 else "rua",
+            "sql": f"0{k}" if k % 3 == 0 else None,
+            "valor_venal": terreno + construcao, "venal_terreno": terreno,
+            "venal_construcao": construcao, "v_m2_terreno": 400.0,
+            "v_m2_construcao": 2250.0, "fator_obsolescencia": 0.8,
+            "area_terreno": a["area_terreno"], "area_construida": a["area_construida"],
+            "ano_construcao": 1990 if k % 3 == 0 else None, "padrao": None, "esquina": 0,
+            "n_lotes": 1 if k % 3 == 0 else 9, "ano_base": 2026,
+            "pct_do_preco": round(100 * (terreno + construcao) / a["preco"], 1),
+        })
+
     # --- área oficial (metade), com casos de anúncio que publicou o TERRENO -
     for k, a in enumerate(anuncios[::2]):
         terreno = k % 4 == 0

@@ -60,6 +60,22 @@ def _moeda(valor) -> str:
         return "R$ ?"
 
 
+@app.template_filter("moeda_curta")
+def _moeda_curta(valor) -> str:
+    """R$ 1.712.300 -> 'R$ 1,71 mi'; R$ 480.000 -> 'R$ 480 mil' (cards)."""
+    if valor is None:
+        return "—"
+    try:
+        v = float(valor)
+    except (TypeError, ValueError):
+        return "—"
+    if v >= 1e6:
+        return "R$ " + f"{v / 1e6:.2f}".replace(".", ",") + " mi"
+    if v >= 1e3:
+        return f"R$ {v / 1e3:.0f} mil"
+    return f"R$ {v:.0f}"
+
+
 @app.template_filter("m2")
 def _m2(valor) -> str:
     if valor is None:
@@ -352,6 +368,16 @@ def _copias_dos_grupos(conn: sqlite3.Connection, anuncios) -> dict[str, dict]:
     return faixas
 
 
+def _venais_iptu(conn: sqlite3.Connection, urls: list[str]) -> dict[str, dict]:
+    """Venal OFICIAL do IPTU (fórmula da lei sobre o cadastro; ver iptu.py)."""
+    if not urls or not conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='venal_iptu'").fetchone():
+        return {}
+    marcadores = ",".join("?" * len(urls))
+    return {r["anuncio_url"]: dict(r) for r in conn.execute(
+        f"SELECT * FROM venal_iptu WHERE anuncio_url IN ({marcadores})", urls)}
+
+
 def _venais(conn: sqlite3.Connection, urls: list[str]) -> dict[str, dict]:
     """Valor venal estimado (referência tributária) de vários anúncios."""
     if not urls:
@@ -547,6 +573,7 @@ def index():
     comps = _comparacoes(conn, urls) if tem_comp else {}
     areas = _areas_oficiais(conn, urls) if tem_areas else {}
     venais = _venais(conn, urls) if tem_venais else {}
+    iptus = _venais_iptu(conn, urls)
     # quantas cópias do mesmo imóvel existem, e a faixa de preço delas
     faixas = _copias_dos_grupos(conn, anuncios) if tem_dup else {}
     # uma consulta só para as fotos de todos os cards da página
@@ -559,6 +586,7 @@ def index():
         d["area_of"] = areas.get(a["url"])
         d["area_grau"] = _grau_da_area(areas.get(a["url"]))
         d["venal"] = venais.get(a["url"])
+        d["iptu"] = iptus.get(a["url"])
         # nota de encaixe, para o selo no card (calculada no próprio SELECT)
         d["encaixe"] = a["_nota"]
         # "n_copias" é quantas ofertas do mesmo imóvel existem (1 = única).
@@ -694,6 +722,7 @@ def detalhe(anuncio_url: str):
     d["area_of"] = area_of
     d["area_grau"] = _grau_da_area(area_of)
     d["venal"] = venal
+    d["iptu"] = _venais_iptu(conn, [anuncio_url]).get(anuncio_url)
     d["copias"] = copias
     # o menor preço do grupo (com o próprio anúncio incluído) é a referência
     # para dizer em quanto ele está acima da oferta mais barata
