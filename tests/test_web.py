@@ -311,3 +311,34 @@ def test_pagina_do_anuncio_mostra_o_venal_do_iptu(cliente, banco):
     assert "Valor venal (IPTU 2026)" in h
     assert "este imóvel" in h and "construído em" in h
     assert "Valor de referência do ITBI" in h
+
+
+# ---------------------------------------------------------------------------
+# Trocar de página preserva TODOS os valores dos filtros de múltipla escolha
+# ---------------------------------------------------------------------------
+def _query_dos_links_de_pagina(html: str) -> list[dict]:
+    from urllib.parse import parse_qs, urlparse
+
+    links = re.findall(r'<a class="pag-(?:num|seta)" href="([^"]+)"', html)
+    return [parse_qs(urlparse(htmlmod.unescape(h)).query) for h in links]
+
+
+def test_paginacao_preserva_varios_bairros(cliente):
+    """Bug: ?bairro=A&bairro=B&...&pagina=2 mantinha só o primeiro bairro."""
+    q = [("bairro", "Lapa"), ("bairro", "Pirituba"), ("bairro", "Vila Mangalot"),
+         ("todas", "1"), ("ordem", "encaixe")]
+    r = cliente.get("/", query_string=q)
+    links = _query_dos_links_de_pagina(_texto(r))
+    assert links, "a busca deveria ter mais de uma página"
+    for params in links:
+        assert params["bairro"] == ["Lapa", "Pirituba", "Vila Mangalot"]
+        assert params["todas"] == ["1"] and params["ordem"] == ["encaixe"]
+        assert len(params["pagina"]) == 1          # a página não se repete
+
+
+def test_pagina_2_continua_com_os_mesmos_bairros(cliente):
+    q = [("bairro", "Lapa"), ("bairro", "Pirituba"), ("bairro", "Vila Mangalot"), ("todas", "1")]
+    p1 = _total(cliente.get("/", query_string=q))
+    r2 = cliente.get("/", query_string=[*q, ("pagina", "2")])
+    assert _total(r2) == p1                      # mesmo conjunto, só outra página
+    assert 'name="bairro" value="Pirituba" checked' in _achata(_texto(r2))

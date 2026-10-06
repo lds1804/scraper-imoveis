@@ -428,8 +428,10 @@
      troca o `pagina`, senão navegar perderia o filtro. #}
   {% if n_paginas > 1 %}
     {% macro link_pagina(n) %}
-      {%- set args = request.args.to_dict() -%}
-      {%- set _ = args.update({'pagina': n}) -%}
+      {#- flat=False: `to_dict()` guarda só o PRIMEIRO valor de cada parâmetro, e
+          ?bairro=A&bairro=B virava ?bairro=A ao trocar de página. -#}
+      {%- set args = request.args.to_dict(flat=False) -%}
+      {%- set _ = args.update({'pagina': [n]}) -%}
       {{ url_for('index', **args) }}
     {% endmacro %}
     <nav class="paginacao" aria-label="Paginação">
