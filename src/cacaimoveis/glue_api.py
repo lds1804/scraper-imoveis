@@ -275,6 +275,10 @@ def buscar_pagina(bairro: str, pagina: int = 1, tamanho: int | None = None,
         "addressNeighborhood": bairro,
         "size": tamanho,
         "from": (pagina - 1) * tamanho,
+        # Mais RECENTES primeiro (testado em 2026-10-06: `createdAt DESC`
+        # devolve os anúncios de hoje no topo; `createdAt:DESC` dá HTTP 500).
+        # É o que permite parar cedo na coleta incremental.
+        "sort": "createdAt DESC",
         # `search` sozinho traz tudo. NÃO montar aninhado
         # (`search(result(totalCount))` com espaço devolve 400).
         "includeFields": "search",
@@ -312,7 +316,7 @@ def buscar_pagina(bairro: str, pagina: int = 1, tamanho: int | None = None,
 
 def coletar_bairro(bairro: str, portal: str = "zap",
                    max_paginas: int | None = None,
-                   quieto: bool = True) -> Iterator[Anuncio]:
+                   quieto: bool = True, incremental=None) -> Iterator[Anuncio]:
     """Itera pelos anúncios de um bairro, paginando até acabar ou atingir o teto.
 
     `quieto=True` (padrão) não imprime nada por página: quem chama costuma ter
@@ -322,9 +326,13 @@ def coletar_bairro(bairro: str, portal: str = "zap",
     limite = max_paginas if max_paginas is not None else config.GLUE_MAX_PAGINAS
     tamanho = config.GLUE_PAGINA_TAMANHO
     vistos: set[str] = set()
+    if incremental:
+        incremental.novo_bairro()
 
     for pagina in range(1, limite + 1):
         anuncios, total = buscar_pagina(bairro, pagina, tamanho, portal)
+        urls_pagina = [a.url for a in anuncios]
+        n_ineditos = incremental.novos(urls_pagina) if incremental else 0
 
         if not quieto:
             if not anuncios and pagina == 1:
@@ -342,6 +350,12 @@ def coletar_bairro(bairro: str, portal: str = "zap",
             novos += 1
             yield a
 
+        # só aqui, depois de o consumidor processar a página toda, ela vira
+        # "vista" — uma coleta que cai no meio refaz a página na próxima rodada
+        if incremental:
+            incremental.registrar(urls_pagina)
+            if incremental.pode_parar(n_ineditos):
+                break
         if novos == 0:
             break  # página repetida ou vazia: acabou
         if pagina * tamanho >= total:

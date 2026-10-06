@@ -73,7 +73,10 @@ def montar_url(bairro: str, pagina: int = 1) -> str:
     A página 1 não leva `?o=1` (o parâmetro é omitido quando é a primeira).
     """
     q = bairro.strip()
-    url = f"{config.OLX_BASE}{config.OLX_REGIAO}?q={q.replace(' ', '+')}"
+    # sf=1 = "mais recentes" (testado em 2026-10-06: a lista vem em ordem
+    # cronológica, "Hoje, 16:46" no topo). Permite a coleta incremental
+    # parar cedo; sem isso a ordem era por relevância.
+    url = f"{config.OLX_BASE}{config.OLX_REGIAO}?q={q.replace(' ', '+')}&sf=1"
     if pagina > 1:
         url += f"&o={pagina}"
     return url
@@ -386,7 +389,7 @@ def _abrir(page, url: str, tentativas: int = 3, quieto: bool = False) -> str | N
 
 
 def coletar_bairro(page, bairro, max_paginas: int | None = None,
-                   quieto: bool = True):
+                   quieto: bool = True, incremental=None):
     """Itera pelas páginas de busca de um bairro e gera Anuncios.
 
     `bairro` pode ser um `config.Bairro` ou uma string. Sempre usa a busca
@@ -403,6 +406,8 @@ def coletar_bairro(page, bairro, max_paginas: int | None = None,
         nome = bairro.nome
 
     limite = max_paginas if max_paginas is not None else config.OLX_MAX_PAGINAS
+    if incremental:
+        incremental.novo_bairro()
 
     for pagina in range(1, limite + 1):
         url = montar_url(termo, pagina)
@@ -425,7 +430,13 @@ def coletar_bairro(page, bairro, max_paginas: int | None = None,
             do_bairro = sum(1 for a in anuncios if bairro_confere(a.endereco, termo))
             print(f"  {len(anuncios)} anúncios ({do_bairro} do bairro buscado)")
 
+        urls_pagina = [a.url for a in anuncios]
+        n_ineditos = incremental.novos(urls_pagina) if incremental else 0
         yield from anuncios
+        if incremental:
+            incremental.registrar(urls_pagina)
+            if incremental.pode_parar(n_ineditos):
+                break
 
         if pagina < limite:
             time.sleep(config.DELAY_MIN)

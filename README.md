@@ -182,6 +182,18 @@ caca-atualizar --provedor deepseek   # photo analysis through the DeepSeek API
 caca-atualizar --listar              # show the plan only
 ```
 
+**The daily run is incremental.** Every portal is asked for the newest ads
+first (`sort=createdAt DESC` on ZAP, `MOST_RECENT` on QuintoAndar, `sf=1` on
+OLX) and a neighbourhood stops after two pages with nothing it has not seen
+before, instead of re-reading all 20 pages (a daily run used to spend an hour
+re-reading what it already had). "Seen" includes discarded ads (apartments,
+other neighbourhoods) — they are remembered in the `vistos` table, otherwise
+they would look new every time. The **first run after enabling it still reads
+everything** (it is learning what to skip); from the second on it is short.
+`caca-atualizar --completo` (monthly) or `--completa` on any crawler forces a
+full pass. Duplicate detection caches the photo hashes and groups with numpy
+(19 min -> ~10 s, same groups).
+
 **Imovelweb** is in the daily run. It is the only portal that needs a real
 browser (plain HTTP gets a Cloudflare 403), so it can be blocked: after 3
 blocked page opens in a row the collection stops, keeps what it already saved,

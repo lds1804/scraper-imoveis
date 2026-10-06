@@ -13,7 +13,8 @@ Etapas (na ordem):
     backup       cópia consistente do banco (caca-backup), mantém as 3 últimas
     imovelweb    coleta do Imovelweb (navegador) e das suas páginas de detalhe;
                  se o Cloudflare barrar, desiste e segue (--sem-imovelweb pula)
-    coleta       ZAP, QuintoAndar e OLX
+    coleta       ZAP, QuintoAndar e OLX, só até o que já foi visto (incremental;
+                 `--completo` faz a varredura inteira)
     fotos        baixa as fotos de anúncios que ficaram sem nenhuma
     duplicatas   agrupa o mesmo imóvel anunciado por várias imobiliárias
     endereco     herda número e CEP entre cópias do mesmo imóvel
@@ -119,6 +120,9 @@ def _iptu(args) -> str:
 
 def montar_etapas(args) -> list[Etapa]:
     coleta = ["coletar_tudo", "--todos"]
+    # o diário é incremental (só o que é novo); o mensal varre tudo
+    if args.completo:
+        coleta.append("--completa")
     if args.max_paginas:
         coleta += ["--max-paginas", str(args.max_paginas)]
     visao = ["analisar_visao", "--provedor", args.provedor]

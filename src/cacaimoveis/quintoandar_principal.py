@@ -20,6 +20,7 @@ import time
 
 from cacaimoveis import config, logs
 from cacaimoveis import quintoandar as qa
+from cacaimoveis.incremental import Incremental
 from cacaimoveis.progresso import Barra, _duracao, resumo
 from cacaimoveis.scraper_browser import (
     atende_preco,
@@ -72,13 +73,14 @@ def dry_run(alvos: list[str] | None, todos: bool) -> None:
 
 
 def coletar(alvos: list[str] | None, todos: bool,
-            max_paginas: int | None) -> None:
+            max_paginas: int | None, completa: bool = False) -> None:
     selecionados = _filtrar_bairros(alvos, todos)
     if not selecionados:
         print("Nenhum bairro para coletar.")
         return
 
     db = DB()
+    incr = Incremental(db.conn, "quintoandar", completa=completa)
     print("Portal : QuintoAndar  (inventário próprio)")
     print(f"Banco  : {config.DB_PATH}")
     print(f"Já tem : {db.total()} anúncios {db.por_portal()}")
@@ -96,7 +98,7 @@ def coletar(alvos: list[str] | None, todos: bool,
         salvos_no_bairro = 0
 
         try:
-            for anuncio in qa.coletar_bairro(bairro.nome, max_paginas):
+            for anuncio in qa.coletar_bairro(bairro.nome, max_paginas, incremental=incr):
                 vistos_total += 1
 
                 if not e_de_sao_paulo(anuncio):
@@ -158,6 +160,7 @@ def coletar(alvos: list[str] | None, todos: bool,
         ("já existiam", ja_existiam),
         ("fora do bairro-alvo", fora_do_alvo),
         ("acima do preço", fora_do_preco),
+        ("coleta", incr.resumo()),
         ("fotos baixadas", fotos_baixadas),
         ("tempo", _duracao(time.time() - t0)),
         ("total no banco", f"{db.total()}"),
@@ -174,12 +177,14 @@ def main() -> None:
     parser.add_argument("--todos", action="store_true",
                         help="inclui também os bairros vizinhos")
     parser.add_argument("--max-paginas", type=int, default=None, metavar="N")
+    parser.add_argument("--completa", action="store_true",
+                        help="pagina tudo (padrão: só até o que já foi visto)")
     args = parser.parse_args()
 
     if args.dry_run:
         dry_run(args.bairros, args.todos)
     else:
-        coletar(args.bairros, args.todos, args.max_paginas)
+        coletar(args.bairros, args.todos, args.max_paginas, args.completa)
 
 
 if __name__ == "__main__":

@@ -28,7 +28,7 @@ import sqlite3
 import sys
 import time
 
-from cacaimoveis import config, endereco
+from cacaimoveis import config, endereco, migracoes
 from cacaimoveis.storage import DB
 
 try:
@@ -64,30 +64,62 @@ def _hash_arquivo(caminho: str, tamanho: int):
         return None
 
 
+def _carregar_cache(conn, tamanho: int) -> dict[str, tuple[float, str]]:
+    """{arquivo: (mtime, hash em hexadecimal)} dos hashes já calculados."""
+    if conn is None:
+        return {}
+    return {r[0]: (r[1], r[2]) for r in conn.execute(
+        "SELECT arquivo, mtime, hash FROM foto_hash WHERE tamanho = ?", (tamanho,))}
+
+
 def _hash_anuncios(
-    fotos: dict[str, list[str]], tamanho: int, verbose: bool = True
+    fotos: dict[str, list[str]], tamanho: int, verbose: bool = True, conn=None
 ) -> dict[str, list]:
-    """Calcula o pHash de todas as fotos de cada anúncio.
+    """Calcula o pHash das fotos de cada anúncio.
 
     Guarda no máximo `config.DUP_MAX_HASHES_FOTO` hashes por anúncio — a foto
     de capa e as primeiras já bastam para identificar o imóvel.
+
+    Com `conn`, reaproveita os hashes de `foto_hash`: só foto nova ou
+    substituída (mtime diferente) é decodificada de novo. Medido em
+    2026-10-06, decodificar ~20 mil fotos era uma parte relevante dos 19 min
+    desta etapa, e quase nenhuma foto muda de um dia para o outro.
     """
-    total = sum(len(v) for v in fotos.values())
+    cache = _carregar_cache(conn, tamanho)
+    novos: list[tuple] = []
+    total = sum(min(len(v), config.DUP_MAX_HASHES_FOTO) for v in fotos.values())
     feito = 0
     resultado: dict[str, list] = {}
 
     for i, (url, caminhos) in enumerate(fotos.items(), 1):
         hashes = []
         for caminho in caminhos[: config.DUP_MAX_HASHES_FOTO]:
+            feito += 1
+            try:
+                mtime = os.path.getmtime(caminho)
+            except OSError:
+                continue
+            em_cache = cache.get(caminho)
+            if em_cache and em_cache[0] == mtime:
+                hashes.append(imagehash.hex_to_hash(em_cache[1]))
+                continue
             h = _hash_arquivo(caminho, tamanho)
             if h is not None:
                 hashes.append(h)
-            feito += 1
+                novos.append((caminho, mtime, tamanho, str(h)))
         if hashes:
             resultado[url] = hashes
-        if verbose and i % 25 == 0:
-            print(f"    {i}/{len(fotos)} anúncios ({feito}/{total} fotos)...", flush=True)
+        if verbose and i % 250 == 0:
+            print(f"    {i}/{len(fotos)} anúncios ({feito}/{total} fotos, "
+                  f"{len(novos)} calculadas)...", flush=True)
 
+    if conn is not None and novos:
+        conn.executemany(
+            "INSERT OR REPLACE INTO foto_hash (arquivo, mtime, tamanho, hash) VALUES (?,?,?,?)",
+            novos)
+        conn.commit()
+    if verbose:
+        print(f"    hashes: {feito - len(novos):,} do cache, {len(novos):,} calculados")
     return resultado
 
 
@@ -119,6 +151,60 @@ def _limiar_para_hash(limiar: int) -> float:
 def _agrupar(hashes: dict[str, list], limiar: int,
              verbose: bool = True) -> list[list[str]]:
     """Agrupa anúncios que compartilham alguma foto (união-busca).
+
+    Cada hash vira um inteiro de 64 bits e a distância de Hamming de todos os
+    pares sai de `numpy.bitwise_count` em blocos. É o MESMO critério da
+    versão em Python puro (`_agrupar_lento`: alguma foto de A a no máximo
+    `limiar` bits de alguma de B), só que em segundos em vez de ~19 minutos.
+    Hashes maiores que 64 bits caem na versão lenta.
+    """
+    todos = [h for hs in hashes.values() for h in hs]
+    if not todos or len(todos[0].hash.flatten()) > 64:
+        return _agrupar_lento(hashes, limiar, verbose)
+
+    import numpy as np
+
+    urls = list(hashes)
+    dono = np.concatenate([np.full(len(hs), i, dtype=np.int64)
+                           for i, hs in enumerate(hashes.values())])
+    valores = np.array([int(str(h), 16) for h in todos], dtype=np.uint64)
+    pai = list(range(len(urls)))
+
+    def raiz(x: int) -> int:
+        while pai[x] != x:
+            pai[x] = pai[pai[x]]
+            x = pai[x]
+        return x
+
+    t0 = time.time()
+    bloco = 512
+    for ini in range(0, len(valores), bloco):
+        fim = min(ini + bloco, len(valores))
+        # bits diferentes entre os hashes do bloco e TODOS os seguintes
+        dist = np.bitwise_count(valores[ini:fim, None] ^ valores[None, :])
+        linhas, colunas = np.nonzero(dist <= limiar)
+        for a, b in zip(linhas + ini, colunas, strict=True):
+            da, db = dono[a], dono[b]
+            if da != db:
+                ra, rb = raiz(int(da)), raiz(int(db))
+                if ra != rb:
+                    pai[ra] = rb
+
+    grupos: dict[int, list[str]] = collections.defaultdict(list)
+    for i, u in enumerate(urls):
+        grupos[raiz(i)].append(u)
+    resultado = [g for g in grupos.values() if len(g) > 1]
+    if verbose:
+        print(f"    agrupamento concluído em {time.time() - t0:.1f} s "
+              f"| {len(resultado):,} grupos", flush=True)
+    return resultado
+
+
+def _agrupar_lento(hashes: dict[str, list], limiar: int,
+                   verbose: bool = True) -> list[list[str]]:
+    """Versão original, par a par em Python (referência dos testes).
+
+    Agrupa anúncios que compartilham alguma foto (união-busca).
 
     Se A e B têm uma foto igual, e B e C têm outra, os três ficam no mesmo
     grupo — mesmo que A e C não compartilhem nada diretamente.
@@ -214,6 +300,7 @@ def main() -> None:
 
     conn = sqlite3.connect(config.DB_PATH)
     conn.row_factory = sqlite3.Row
+    migracoes.migrar(conn)      # cria foto_hash (cache) se ainda não existe
 
     print(f"Banco : {config.DB_PATH}")
     if args.reaproveitar:
@@ -229,7 +316,8 @@ def main() -> None:
         print(f"Anúncios com fotos em disco: {len(fotos)} | fotos: {total_fotos}")
         print(f"Calculando hashes (limiar={args.limiar} bits)...")
 
-        hashes = _hash_anuncios(fotos, config.DUP_HASH_SIZE, verbose=not args.quieto)
+        hashes = _hash_anuncios(fotos, config.DUP_HASH_SIZE, verbose=not args.quieto,
+                                conn=conn)
         print(f"Hashes calculados para {len(hashes)} anúncios.")
         if len(hashes) > 1:
             pares = len(hashes) * (len(hashes) - 1) // 2

@@ -97,7 +97,9 @@ def _corpo(slug: str, pagina: int, tamanho: int) -> dict:
         "slug": slug,
         "topics": [],
         "fields": _CAMPOS,
-        "sorting": {"criteria": "RELEVANCE"},
+        # Mais RECENTES primeiro (`MOST_RECENT` é aceito; "NEWEST", "RECENT"
+        # etc. dão HTTP 400). Permite a coleta incremental parar cedo.
+        "sorting": {"criteria": "MOST_RECENT"},
         "pagination": {"pageSize": tamanho, "offset": (pagina - 1) * tamanho},
         "context": {
             "listShowing": True,
@@ -237,7 +239,7 @@ def buscar_pagina(slug: str, pagina: int = 1,
 
 
 def coletar_bairro(bairro: str, max_paginas: int | None = None,
-                   quieto: bool = True) -> Iterator[Anuncio]:
+                   quieto: bool = True, incremental=None) -> Iterator[Anuncio]:
     """Itera pelos anúncios de um bairro, paginando até acabar.
 
     `quieto=True` (padrão) não imprime por página: quem chama costuma estar
@@ -246,9 +248,13 @@ def coletar_bairro(bairro: str, max_paginas: int | None = None,
     slug = montar_slug(bairro)
     limite = max_paginas if max_paginas is not None else config.QUINTO_MAX_PAGINAS
     vistos: set[str] = set()
+    if incremental:
+        incremental.novo_bairro()
 
     for pagina in range(1, limite + 1):
         anuncios, total = buscar_pagina(slug, pagina)
+        urls_pagina = [a.url for a in anuncios]
+        n_ineditos = incremental.novos(urls_pagina) if incremental else 0
         if not quieto:
             print(f"  pág {pagina}: {len(anuncios)} casas (slug={slug})")
 
@@ -260,6 +266,10 @@ def coletar_bairro(bairro: str, max_paginas: int | None = None,
             novos += 1
             yield a
 
+        if incremental:
+            incremental.registrar(urls_pagina)
+            if incremental.pode_parar(n_ineditos):
+                break
         if novos == 0:
             break
         if pagina * config.QUINTO_PAGINA_TAMANHO >= total:

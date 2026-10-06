@@ -66,6 +66,8 @@ def _montar_cmd(script: str, tipo: str, args) -> list[str]:
 
     if args.max_paginas:
         cmd += ["--max-paginas", str(args.max_paginas)]
+    if args.completa:
+        cmd.append("--completa")
 
     # a OLX tem flag própria para enriquecer os detalhes
     if tipo == "olx" and args.detalhes:
@@ -88,6 +90,8 @@ def main() -> int:
                         help="limite de páginas por bairro")
     parser.add_argument("--detalhes", action="store_true",
                         help="OLX: abre a página de cada anúncio (mais lento)")
+    parser.add_argument("--completa", action="store_true",
+                        help="varredura inteira (padrão: incremental, só até o que já foi visto)")
     args = parser.parse_args()
 
     selecionadas = [c for c in COLETAS if not args.so or c[0] in args.so]

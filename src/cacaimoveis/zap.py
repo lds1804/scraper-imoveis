@@ -23,6 +23,7 @@ import sys
 import time
 
 from cacaimoveis import config, glue_api, logs
+from cacaimoveis.incremental import Incremental
 from cacaimoveis.progresso import Barra, _duracao, resumo
 from cacaimoveis.scraper_browser import (
     atende_preco,
@@ -79,13 +80,14 @@ def dry_run(alvos: list[str] | None, todos: bool, portal: str) -> None:
 
 
 def coletar(alvos: list[str] | None, todos: bool, portal: str,
-            max_paginas: int | None) -> None:
+            max_paginas: int | None, completa: bool = False) -> None:
     selecionados = _filtrar_bairros(alvos, todos)
     if not selecionados:
         print("Nenhum bairro para coletar.")
         return
 
     db = DB()
+    incr = Incremental(db.conn, portal, completa=completa)
     print(f"Portal : {portal}  (API do grupo OLX — mesmo inventário do Viva Real)")
     print(f"Banco  : {config.DB_PATH}")
     print(f"Já tem : {db.total()} anúncios {db.por_portal()}")
@@ -106,7 +108,8 @@ def coletar(alvos: list[str] | None, todos: bool, portal: str,
         salvos_no_bairro = 0
 
         try:
-            for anuncio in glue_api.coletar_bairro(bairro.nome, portal, max_paginas):
+            for anuncio in glue_api.coletar_bairro(bairro.nome, portal, max_paginas,
+                                                 incremental=incr):
                 vistos_total += 1
 
                 if not e_de_sao_paulo(anuncio):
@@ -164,7 +167,8 @@ def coletar(alvos: list[str] | None, todos: bool, portal: str,
             f"(total {db.total()})"
         )
         barra.avancar()
-        time.sleep(config.GLUE_DELAY_S)
+        # sem `sleep` aqui: o intervalo do Crawl-delay já é garantido por
+        # `glue_api.buscar_pagina` (um sleep extra por bairro só somava 10 s)
 
     barra.encerrar()
 
@@ -174,6 +178,7 @@ def coletar(alvos: list[str] | None, todos: bool, portal: str,
         ("já existiam", ja_existiam),
         ("fora do bairro-alvo", fora_do_alvo),
         ("acima do preço", fora_do_preco),
+        ("coleta", incr.resumo()),
         ("tempo", _duracao(time.time() - t0)),
         ("total no banco", f"{db.total()}"),
     ])
@@ -195,12 +200,14 @@ def main() -> None:
                         help="inclui também os bairros vizinhos")
     parser.add_argument("--max-paginas", type=int, default=None, metavar="N",
                         help=f"limite de páginas por bairro (padrão {config.GLUE_MAX_PAGINAS})")
+    parser.add_argument("--completa", action="store_true",
+                        help="pagina tudo (padrão: só até o que já foi visto)")
     args = parser.parse_args()
 
     if args.dry_run:
         dry_run(args.bairros, args.todos, args.portal)
     else:
-        coletar(args.bairros, args.todos, args.portal, args.max_paginas)
+        coletar(args.bairros, args.todos, args.portal, args.max_paginas, args.completa)
 
 
 if __name__ == "__main__":

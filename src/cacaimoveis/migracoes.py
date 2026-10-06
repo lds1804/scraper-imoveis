@@ -260,6 +260,31 @@ def _m006_removido(conn: sqlite3.Connection) -> None:
     _garantir_tabela(conn, "anuncios", [("removido_em", "TEXT")])
 
 
+def _m007_vistos(conn: sqlite3.Connection) -> None:
+    """Anúncios que o coletor já viu, salvos ou descartados (ver incremental.py).
+
+    Semeada com o que está em `anuncios`; os descartados (apartamentos, fora do
+    bairro) são aprendidos na primeira rodada completa.
+    """
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS vistos (
+               url TEXT PRIMARY KEY, portal TEXT, primeira_vez TEXT, ultima_vez TEXT)""")
+    conn.execute(
+        """INSERT OR IGNORE INTO vistos (url, portal, primeira_vez, ultima_vez)
+           SELECT url, portal, datetime('now'), datetime('now') FROM anuncios""")
+
+
+def _m008_foto_hash(conn: sqlite3.Connection) -> None:
+    """pHash já calculado de cada foto (ver achar_duplicatas.py).
+
+    `mtime` invalida a linha quando o arquivo é substituído: a galeria
+    completa de um anúncio reaproveita os mesmos nomes de arquivo.
+    """
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS foto_hash (
+               arquivo TEXT PRIMARY KEY, mtime REAL, tamanho INTEGER, hash TEXT)""")
+
+
 # A posição na lista É o número da versão (1, 2, ...). Só acrescentar no fim.
 MIGRACOES: list[Callable[[sqlite3.Connection], None]] = [
     _m001_tabelas,
@@ -268,6 +293,8 @@ MIGRACOES: list[Callable[[sqlite3.Connection], None]] = [
     _m004_meta,
     _m005_venal_iptu,
     _m006_removido,
+    _m007_vistos,
+    _m008_foto_hash,
 ]
 
 

@@ -25,6 +25,7 @@ import time
 from playwright.sync_api import sync_playwright
 
 from cacaimoveis import config, logs, olx
+from cacaimoveis.incremental import Incremental
 from cacaimoveis.progresso import Barra, resumo
 from cacaimoveis.scraper_browser import (
     atende_preco,
@@ -122,13 +123,14 @@ def dry_run(alvos: list[str] | None, todos: bool) -> None:
 
 
 def coletar(alvos: list[str] | None, todos: bool, com_detalhes: bool,
-            max_paginas: int | None = None) -> None:
+            max_paginas: int | None = None, completa: bool = False) -> None:
     selecionados = _filtrar_bairros(alvos, todos)
     if not selecionados:
         print("Nenhum bairro para coletar.")
         return
 
     db = DB()
+    incr = Incremental(db.conn, "olx", completa=completa)
     print(f"Banco: {config.DB_PATH}")
     print(f"Já tem {db.total()} anúncios "
           f"({db.por_portal().get('olx', 0)} da OLX)")
@@ -171,7 +173,7 @@ def coletar(alvos: list[str] | None, todos: bool, com_detalhes: bool,
                 # quieto=True: a barra desenha na mesma linha, um print por
                 # página quebraria o desenho
                 for anuncio in olx.coletar_bairro(page, bairro, max_paginas,
-                                                  quieto=True):
+                                                  quieto=True, incremental=incr):
                     total_vistos += 1
 
                     # ---- filtros (iguais aos do Imovelweb) ----
@@ -268,6 +270,7 @@ def coletar(alvos: list[str] | None, todos: bool, com_detalhes: bool,
         ("apartamentos descartados", apartamentos),
         ("fora do bairro-alvo", fora_do_alvo),
         ("fotos baixadas", fotos_baixadas),
+        ("coleta", incr.resumo()),
     ]
     if com_detalhes:
         pares.append(("páginas de detalhe", com_detalhe))
@@ -294,6 +297,8 @@ def main() -> None:
                         help="abre a página de cada anúncio (descrição, CEP, galeria)")
     parser.add_argument("--max-paginas", type=int, default=None, metavar="N",
                         help=f"limite de páginas por bairro (padrão {config.OLX_MAX_PAGINAS})")
+    parser.add_argument("--completa", action="store_true",
+                        help="pagina tudo (padrão: só até o que já foi visto)")
     args = parser.parse_args()
 
     if args.listar:
@@ -301,7 +306,7 @@ def main() -> None:
     elif args.dry_run:
         dry_run(args.bairros, args.todos)
     else:
-        coletar(args.bairros, args.todos, args.detalhes, args.max_paginas)
+        coletar(args.bairros, args.todos, args.detalhes, args.max_paginas, args.completa)
 
 
 if __name__ == "__main__":
