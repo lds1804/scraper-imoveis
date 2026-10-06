@@ -1,21 +1,22 @@
-"""Analisa as fotos dos anúncios com o modelo de visão da DeepSeek.
+"""Analisa as fotos dos anúncios com um modelo de visão.
 
-Envia as fotos de cada anúncio para o `deepseek-flash` e grava, no banco,
-parâmetros que o texto do anúncio quase nunca informa:
+Envia as fotos de cada anúncio ao Claude Code CLI (padrão) ou à DeepSeek e
+grava, no banco, parâmetros que o texto do anúncio quase nunca informa:
 quintal com terra, árvores, se é cimentado, iluminação, arejamento, cuidado,
 janelas grandes, fachada, piso, cômodos visíveis, extras e problemas.
 
-Antes de rodar, exporte a chave (o código NUNCA guarda a chave):
-    PowerShell:  $env:DEEPSEEK_API_KEY = "sk-..."
-    permanente:  setx DEEPSEEK_API_KEY "sk-..."   (reabra o terminal)
-    ou crie um arquivo .env com  DEEPSEEK_API_KEY=sk-...
+Provedores (`--provedor`, ou `CACA_VISAO`):
+    claude   (padrão) o Claude Code CLI logado nesta máquina; sem custo por
+             token. Faça login uma vez rodando o `claude` num terminal.
+    deepseek a API da DeepSeek; precisa de DEEPSEEK_API_KEY (ambiente ou
+             .env) e respeita o teto de gasto em reais (`--teto`).
 
 Uso:
-    python analisar_visual.py                 # anúncios ainda não analisados
-    python analisar_visual.py --limite 5      # só 5 (para testar)
-    python analisar_visual.py --refazer       # ignora o que já foi analisado
-    python analisar_visual.py --bairro "Lapa" # só um bairro
-    python analisar_visual.py --sem-fotos     # filtra por outros critérios
+    caca-visao                         # anúncios ainda não analisados
+    caca-visao --limite 5              # só 5 (para testar)
+    caca-visao --provedor deepseek     # pela API da DeepSeek
+    caca-visao --refazer               # ignora o que já foi analisado
+    caca-visao --bairro "Lapa"         # só um bairro
 
 O progresso fica salvo em `foto_ok`, então pode interromper com Ctrl+C e
 rodar de novo depois — ele retoma de onde parou.
@@ -31,7 +32,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from cacaimoveis import config, logs
 from cacaimoveis.progresso import Barra
 from cacaimoveis.storage import DB
-from cacaimoveis.visao import AnaliseFoto, analisar_anuncio, obter_api_key, tem_api_key
+from cacaimoveis.visao import AnaliseFoto, analisar_anuncio, provedor_pronto
 
 log = logs.obter(__name__)
 
@@ -142,8 +143,8 @@ def _resumo_ganhos(a) -> str:
     return " | ".join(partes) if partes else "sem destaques"
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Análise visual das fotos (DeepSeek)")
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Análise visual das fotos")
     parser.add_argument("--limite", type=int, default=0, help="máximo de anúncios (0 = todos)")
     parser.add_argument("--refazer", action="store_true", help="reanalisa tudo")
     parser.add_argument("--incluir-falhas", action="store_true", help="refaz os que falharam")
@@ -156,15 +157,17 @@ def main() -> None:
                         help="não reaproveita duplicatas (analisa cada anúncio)")
     parser.add_argument("--verbose", action="store_true", help="mostra cada requisição")
     parser.add_argument("--teto", type=float, default=20.0, metavar="R$",
-                        help="teto de gasto em REAIS; aborta ao atingir (0 = sem teto)")
+                        help="(deepseek) teto de gasto em REAIS; aborta ao atingir (0 = sem teto)")
+    parser.add_argument("--provedor", choices=["claude", "deepseek"],
+                        default=config.VISAO_PROVEDOR,
+                        help=f"quem analisa as fotos (padrão: {config.VISAO_PROVEDOR})")
     args = parser.parse_args()
+    deepseek = args.provedor == "deepseek"
 
-    if not tem_api_key():
-        try:
-            obter_api_key()
-        except RuntimeError as e:
-            print(e)
-            sys.exit(1)
+    falta = provedor_pronto(args.provedor)
+    if falta:
+        print(falta)
+        return 1
 
     db = DB()
 
@@ -224,7 +227,11 @@ def main() -> None:
 
 
     print(f"Banco        : {config.DB_PATH} ({db.total()} anúncios)")
-    print(f"Modelo       : {config.VISAO_MODELO}  (detail={config.VISAO_DETALHE})")
+    if deepseek:
+        print(f"Modelo       : {config.VISAO_MODELO}  (detail={config.VISAO_DETALHE})")
+    else:
+        print(f"Modelo       : Claude Code CLI ({config.VISAO_CLAUDE_MODELO}), "
+              f"até {config.VISAO_CLAUDE_MAX_FOTOS} fotos por anúncio")
     print(f"A analisar   : {len(pendentes)}")
     if grupos_dup:
         poupados = sum(
@@ -237,7 +244,7 @@ def main() -> None:
     if not pendentes:
         print("\nNada a fazer. Use --refazer para reprocessar tudo.")
         db.close()
-        return
+        return 0
 
     # -----------------------------------------------------------------------
     # ESTIMATIVA DE CUSTO — com tokens MEDIDOS na API, não chutados.
@@ -258,6 +265,8 @@ def main() -> None:
     # sem necessidade.
     # -----------------------------------------------------------------------
     tf = TOK_FOTO.get(config.VISAO_DETALHE, TOK_FOTO["original"])
+    # o Claude Code usa a assinatura: não há conta por token nem teto em reais
+    teto_brl = args.teto if deepseek else 0.0
     if not args.sem_agrupar:
         _ids_que_vai = {
             r["url"] for r in pendentes
@@ -277,11 +286,10 @@ def main() -> None:
     tok_saida = n_chamadas * TOK_SAIDA
     custo_peak = (tok_entrada * USD_ENTRADA_PEAK + tok_saida * USD_SAIDA_PEAK) * BRL
     custo_off = (tok_entrada * USD_ENTRADA_OFF + tok_saida * USD_SAIDA_OFF) * BRL
-    teto_brl = args.teto
-    print(f"Fotos        : {n_fotos_total:,d} em {n_chamadas:,d} chamadas à API "
-          f"({n_fotos_total/max(n_chamadas,1):.1f}/anúncio)")
-    print(f"Custo        : R$ {custo_off:.2f} off-peak · R$ {custo_peak:.2f} peak "
-          f"(detail={config.VISAO_DETALHE}, ~{tf} tok/foto)")
+    print(f"Chamadas     : {n_chamadas:,d} ({n_fotos_total:,d} fotos em disco)")
+    if deepseek:
+        print(f"Custo        : R$ {custo_off:.2f} off-peak · R$ {custo_peak:.2f} peak "
+              f"(detail={config.VISAO_DETALHE}, ~{tf} tok/foto)")
     if teto_brl > 0:
         horario = "PEAK (dobro)" if _e_peak() else "off-peak (metade)"
         print(f"Teto         : R$ {teto_brl:.2f}   horário agora: {horario}")
@@ -289,7 +297,7 @@ def main() -> None:
             print("\n*** ABORTADO: a estimativa off-peak já passa do teto. ***")
             print("    Reduza o escopo (--limite/--bairro) ou aumente --teto.\n")
             db.close()
-            return
+            return 1
     print()
 
     n_ok = n_falha = 0
@@ -357,8 +365,13 @@ def main() -> None:
     def _analisa_e_salva(row, fotos):
         """Analisa um anúncio e grava o resultado (roda em thread separada)."""
         a = analisar_anuncio(
-            row["url"], fotos, max_fotos=args.max_fotos or None, verbose=False
+            row["url"], fotos, max_fotos=args.max_fotos or None, verbose=False,
+            provedor=args.provedor,
         )
+        if a.transitorio:
+            # login/rede/timeout: não grava "falhou", senão a próxima rodada
+            # pularia o anúncio como se a culpa fosse dele
+            return a
         meu_db = DB(migrar=False)
         try:
             meu_db.salvar_analise_visual(a)
@@ -392,7 +405,8 @@ def main() -> None:
                 f"  [quintal]  {(row['titulo'] or '')[:38]:40s} {a.piso_quintal}"
             )
 
-    workers = max(1, min(config.VISAO_PARALELO, len(tarefas_fotos)))
+    paralelo = config.VISAO_PARALELO if deepseek else config.VISAO_CLAUDE_PARALELO
+    workers = max(1, min(paralelo, len(tarefas_fotos)))
     if args.verbose:
         print(f"[verbose] {len(tarefas_fotos)} chamada(s) à API, {workers} em paralelo")
 
@@ -405,7 +419,7 @@ def main() -> None:
                 _soma_gasto(row, fotos, a.ok)
                 _registra(row, a)
                 barra.passo(a.ok)
-                if config.VISAO_DELAY_S:
+                if deepseek and config.VISAO_DELAY_S:
                     time.sleep(config.VISAO_DELAY_S)
         else:
             # No modo paralelo não dá para "parar no meio": as tarefas já
@@ -460,7 +474,7 @@ def main() -> None:
         barra.encerrar()
         print("Interrompido. Progresso salvo — rode de novo para continuar.")
         db.close()
-        return
+        return 130
 
     barra.encerrar()
 
@@ -471,8 +485,9 @@ def main() -> None:
     print(f"Reaproveitados (dup)   : {reaproveitados}")
     print(f"Com quintal de terra   : {destaques_quintal}")
     print(f"Tempo                  : {decorrido:.0f}s")
-    print(f"Gasto (no horário)     : R$ {gasto_brl:.2f}"
-          + (f"  de R$ {teto_brl:.2f}" if teto_brl > 0 else ""))
+    if deepseek:
+        print(f"Gasto (no horário)     : R$ {gasto_brl:.2f}"
+              + (f"  de R$ {teto_brl:.2f}" if teto_brl > 0 else ""))
     if interrompido_por_teto:
         print("")
         print("*** PARADO PELO TETO DE GASTO ***")
@@ -482,7 +497,10 @@ def main() -> None:
         print(f"Ritmo                  : {decorrido / len(pendentes):.1f}s por anúncio")
     print(f"Restantes              : {len(db.sem_analise_visual(args.incluir_falhas))}")
     db.close()
+    # tudo falhou = algo está errado (login, chave, rede): sinaliza para quem
+    # chamou (o `caca-atualizar`) em vez de seguir como se tivesse dado certo
+    return 1 if n_falha and not n_ok else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

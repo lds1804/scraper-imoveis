@@ -308,8 +308,33 @@ USER_DATA_DIR = caminho("playwright-profile")
 FOTOS_PARALELO = 16
 
 # ---------------------------------------------------------------------------
-# Análise visual das fotos (DeepSeek)
+# Análise visual das fotos
 # ---------------------------------------------------------------------------
+# Quem olha as fotos:
+#   "claude"   -> o Claude Code CLI (`claude -p`), com a assinatura de quem
+#                 está logado. Não usa chave de API nem cobra por token.
+#   "deepseek" -> a API da DeepSeek (precisa de DEEPSEEK_API_KEY, cobra por
+#                 token; tem teto de gasto em `analisar_visao --teto`).
+# Troque sem mexer no código:  $env:CACA_VISAO = "deepseek"
+VISAO_PROVEDOR = _os.environ.get("CACA_VISAO", "claude").strip().lower()
+
+# --- Claude Code CLI ---
+# Caminho do executável. Vazio = procurar no PATH e, no Windows, na pasta do
+# app desktop (%APPDATA%\Claude\claude-code\<versão>\...\claude.exe).
+VISAO_CLAUDE_BIN = _os.environ.get("CACA_CLAUDE_BIN", "")
+# "sonnet" lê imagem bem e é rápido; "opus" é mais criterioso e mais lento.
+VISAO_CLAUDE_MODELO = _os.environ.get("CACA_CLAUDE_MODELO", "sonnet")
+# Cada chamada sobe um processo do Claude Code e lê as fotos uma a uma: mais
+# lento que a API, e o limite de uso é o da assinatura. Poucos em paralelo.
+VISAO_CLAUDE_PARALELO = 3
+# Fotos por anúncio no CLI. A DeepSeek recebe todas numa requisição; aqui
+# cada foto é uma leitura de arquivo. 12 espalhadas pela galeria (a mediana
+# é 12) cobrem fachada, cômodos e o fundo, onde fica o quintal.
+VISAO_CLAUDE_MAX_FOTOS = 12
+# Segundos até desistir de um anúncio
+VISAO_CLAUDE_TIMEOUT_S = 300
+
+# --- DeepSeek ---
 # A chave NUNCA vai no código: exporte antes de rodar.
 #   PowerShell (sessão atual):  $env:DEEPSEEK_API_KEY = "sk-..."
 #   PowerShell (permanente):    setx DEEPSEEK_API_KEY "sk-..."

@@ -208,10 +208,16 @@ def _m002_indices(conn: sqlite3.Connection) -> None:
         conn.execute(f"CREATE INDEX IF NOT EXISTS {nome} ON {tabela}({colunas})")
 
 
+def _m003_modelo_da_visao(conn: sqlite3.Connection) -> None:
+    """Qual modelo fez a análise das fotos (agora há dois provedores)."""
+    _garantir_tabela(conn, "anuncios", [("foto_modelo", "TEXT")])
+
+
 # A posição na lista É o número da versão (1, 2, ...). Só acrescentar no fim.
 MIGRACOES: list[Callable[[sqlite3.Connection], None]] = [
     _m001_tabelas,
     _m002_indices,
+    _m003_modelo_da_visao,
 ]
 
 

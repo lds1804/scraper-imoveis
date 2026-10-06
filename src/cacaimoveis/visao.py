@@ -1,4 +1,9 @@
-"""Análise das fotos dos anúncios com o modelo de visão da DeepSeek.
+"""Análise das fotos dos anúncios por um modelo de visão.
+
+Dois provedores (`config.VISAO_PROVEDOR`): o Claude Code CLI (`claude -p`,
+padrão, usa a assinatura de quem está logado) e a API da DeepSeek. O prompt,
+o formato da resposta e o que vai para o banco são os MESMOS nos dois — só
+muda o transporte.
 
 Por que existe: a listagem do Imovelweb publica só 1 foto e trunca a descrição.
 Mesmo depois de enriquecer, apenas uma minoria dos anúncios informa coisas como
@@ -18,10 +23,14 @@ Custo: cada imagem é redimensionada pela API e limitada a ~1024 tokens
 from __future__ import annotations
 
 import base64
+import glob
 import io
 import json
 import os
 import re
+import shutil
+import subprocess
+import tempfile
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -97,11 +106,11 @@ def tem_api_key() -> bool:
 # ---------------------------------------------------------------------------
 # Preparação das imagens
 # ---------------------------------------------------------------------------
-def _preparar_imagem(caminho: str, lado_max: int) -> str | None:
-    """Lê, redimensiona e devolve a imagem como data URL base64.
+def _jpeg_redimensionado(caminho: str, lado_max: int) -> bytes | None:
+    """Lê a imagem e devolve um JPEG com no máximo `lado_max` px no lado maior.
 
-    Redimensionar antes de enviar reduz upload e tempo de resposta. A API
-    redimensionaria de qualquer forma, então não há perda de qualidade útil.
+    Redimensionar antes de enviar reduz upload e tempo de resposta. Os modelos
+    redimensionariam de qualquer forma, então não há perda de qualidade útil.
     """
     if not os.path.exists(caminho):
         return None
@@ -133,7 +142,14 @@ def _preparar_imagem(caminho: str, lado_max: int) -> str | None:
             dados = f.read()
     except Exception:  # noqa: BLE001
         return None
+    return dados
 
+
+def _preparar_imagem(caminho: str, lado_max: int) -> str | None:
+    """A imagem redimensionada como data URL base64 (formato da DeepSeek)."""
+    dados = _jpeg_redimensionado(caminho, lado_max)
+    if dados is None:
+        return None
     return "data:image/jpeg;base64," + base64.b64encode(dados).decode("ascii")
 
 
@@ -259,6 +275,113 @@ def _chamar_api(imagens: list[str], texto_prompt: str) -> str:
     return dados["choices"][0]["message"]["content"]
 
 
+# ---------------------------------------------------------------------------
+# Claude Code CLI
+# ---------------------------------------------------------------------------
+# O CLI não recebe imagem por parâmetro: ele LÊ arquivos com a ferramenta
+# Read. As fotos redimensionadas vão para uma pasta temporária, a única que
+# o processo pode ler (`--add-dir`), e Read é a única ferramenta liberada —
+# o modelo não consegue editar, executar nem navegar.
+_INSTRUCAO_CLAUDE = """Use a ferramenta Read para abrir CADA uma destas {n} imagens \
+(pode abrir várias de uma vez). Não use nenhuma outra ferramenta.
+
+{lista}
+
+Depois de ver todas, siga as instruções abaixo.
+
+"""
+
+
+def achar_claude() -> str | None:
+    """Caminho do executável do Claude Code, ou None se não houver.
+
+    Ordem: `CACA_CLAUDE_BIN` -> PATH -> versão mais recente instalada pelo
+    app desktop no Windows (a pasta muda a cada atualização do app).
+    """
+    if config.VISAO_CLAUDE_BIN:
+        return config.VISAO_CLAUDE_BIN if os.path.exists(config.VISAO_CLAUDE_BIN) else None
+    no_path = shutil.which("claude")
+    if no_path:
+        return no_path
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        achados = glob.glob(os.path.join(appdata, "Claude", "claude-code", "*", "*", "claude.exe"))
+        if achados:
+            return max(achados, key=os.path.getmtime)
+    return None
+
+
+def _chamar_claude(caminhos: list[str], texto_prompt: str) -> str:
+    """Analisa as fotos com `claude -p` e devolve o texto da resposta."""
+    binario = achar_claude()
+    if not binario:
+        raise RuntimeError(
+            "Claude Code CLI não encontrado. Defina CACA_CLAUDE_BIN com o caminho "
+            "do claude.exe, ou use a DeepSeek (--provedor deepseek).")
+
+    with tempfile.TemporaryDirectory(prefix="caca_visao_") as pasta:
+        arquivos = []
+        for i, caminho in enumerate(caminhos):
+            dados = _jpeg_redimensionado(caminho, config.VISAO_LADO_MAX_PX)
+            if dados is None:
+                continue
+            destino = os.path.join(pasta, f"foto_{i:02d}.jpg")
+            with open(destino, "wb") as f:
+                f.write(dados)
+            arquivos.append(destino)
+        if not arquivos:
+            raise RuntimeError("nenhuma foto pôde ser lida")
+
+        lista = "\n".join(f"- {a}" for a in arquivos)
+        prompt = (_INSTRUCAO_CLAUDE.format(n=len(arquivos), lista=lista)
+                  + texto_prompt.replace("{n}", str(len(arquivos))))
+        cmd = [
+            binario, "-p", prompt,
+            "--model", config.VISAO_CLAUDE_MODELO,
+            "--tools", "Read",
+            "--allowedTools", "Read",
+            "--add-dir", pasta,
+            "--output-format", "json",
+            "--no-session-persistence",
+            "--strict-mcp-config",
+        ]
+        # cwd na pasta temporária: o CLI não carrega o CLAUDE.md nem as
+        # configurações deste projeto
+        proc = subprocess.run(
+            cmd, cwd=pasta, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=config.VISAO_CLAUDE_TIMEOUT_S,
+        )
+
+    try:
+        saida = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        raise RuntimeError(
+            f"resposta inesperada do claude (código {proc.returncode}): "
+            f"{(proc.stdout or proc.stderr)[:300]}") from None
+    if saida.get("is_error"):
+        texto = str(saida.get("result") or saida.get("terminal_reason") or "erro")
+        if "login" in texto.lower():
+            texto += " — abra um terminal e rode o claude.exe uma vez para fazer login"
+        raise RuntimeError(f"claude: {texto[:300]}")
+    return str(saida.get("result") or "")
+
+
+def provedor_pronto(provedor: str) -> str | None:
+    """None se o provedor pode ser usado; senão, a explicação do que falta."""
+    if provedor == "claude":
+        if achar_claude():
+            return None
+        return ("Claude Code CLI não encontrado (defina CACA_CLAUDE_BIN ou "
+                "instale o claude no PATH).")
+    if provedor == "deepseek":
+        try:
+            obter_api_key()
+            return None
+        except RuntimeError as e:
+            return str(e)
+    return f"provedor desconhecido: {provedor!r} (use 'claude' ou 'deepseek')"
+
+
 def _extrair_json(texto: str) -> dict:
     """Extrai o JSON da resposta, tolerando cercas de código ou texto em volta."""
     limpo = (texto or "").strip()
@@ -355,6 +478,12 @@ class AnaliseFoto:
     problemas: list[str] = field(default_factory=list)
     tem_planta_baixa: bool | None = None
     bruto: dict = field(default_factory=dict)
+    # quem analisou ("claude:sonnet", "deepseek-flash"): permite comparar
+    # provedores e refazer só o que veio de um deles
+    modelo: str = ""
+    # a falha foi do TRANSPORTE (login, rede, timeout, chave), não do anúncio:
+    # não deve ser gravada, para a próxima rodada tentar de novo
+    transitorio: bool = False
 
     _PISO_QUINTAL_VALIDOS = ("terra", "grama", "cimento", "misto", "incerto")
 
@@ -434,13 +563,20 @@ def analisar_anuncio(
     *,
     max_fotos: int | None = None,
     verbose: bool = True,
+    provedor: str | None = None,
 ) -> AnaliseFoto:
     """Analisa as fotos de um anúncio e devolve os parâmetros extraídos.
 
-    As fotos são enviadas juntas na mesma requisição, o que permite ao modelo
-    raciocinar sobre o conjunto do imóvel.
+    As fotos vão juntas na mesma chamada, o que permite ao modelo raciocinar
+    sobre o conjunto do imóvel.
     """
-    limite = config.VISAO_MAX_FOTOS if max_fotos is None else max_fotos
+    provedor = provedor or config.VISAO_PROVEDOR
+    if max_fotos is not None:
+        limite = max_fotos
+    elif provedor == "claude":
+        limite = config.VISAO_CLAUDE_MAX_FOTOS
+    else:
+        limite = config.VISAO_MAX_FOTOS
     fotos = [c for c in caminhos_fotos if c]
     # limite <= 0 = todas as fotos; a amostragem só se aplica quando há teto
     if limite > 0 and config.VISAO_AMOSTRAGEM:
@@ -451,32 +587,45 @@ def analisar_anuncio(
     if not fotos:
         return AnaliseFoto(url=url, ok=False, erro="sem fotos")
 
-    imagens: list[str] = []
-    for caminho in fotos:
-        data_url = _preparar_imagem(caminho, config.VISAO_LADO_MAX_PX)
-        if data_url:
-            imagens.append(data_url)
+    if provedor == "claude":
+        n_fotos = sum(1 for c in fotos if os.path.exists(c))
 
-    if not imagens:
+        def chamar() -> str:
+            return _chamar_claude(fotos, prompt)
+    else:
+        imagens = [d for d in (_preparar_imagem(c, config.VISAO_LADO_MAX_PX) for c in fotos) if d]
+        n_fotos = len(imagens)
+
+        def chamar() -> str:
+            return _chamar_api(imagens, prompt)
+
+    if not n_fotos:
         return AnaliseFoto(url=url, ok=False, erro="nenhuma foto pôde ser lida")
 
-    prompt = PROMPT.format(n=len(imagens))
+    prompt = PROMPT.format(n=n_fotos)
 
     ultimo_erro = ""
+    transitorio = False
     for tentativa in range(1, config.VISAO_MAX_TENTATIVAS + 1):
         try:
             if verbose:
-                print(f"    enviando {len(imagens)} foto(s) (tent. {tentativa})...")
-            resposta = _chamar_api(imagens, prompt)
-            dados = _extrair_json(resposta)
-            return AnaliseFoto.do_json(url, len(imagens), dados)
+                print(f"    enviando {n_fotos} foto(s) a {provedor} (tent. {tentativa})...")
+            dados = _extrair_json(chamar())
+            a = AnaliseFoto.do_json(url, n_fotos, dados)
+            a.modelo = (f"claude:{config.VISAO_CLAUDE_MODELO}" if provedor == "claude"
+                        else config.VISAO_MODELO)
+            return a
 
         except Exception as e:  # noqa: BLE001
             log.warning("erro tratado, a execução segue: %s", e, exc_info=True)
             ultimo_erro = str(e)
+            # JSON ruim (ValueError) é problema da resposta para ESTE anúncio;
+            # o resto (RuntimeError, timeout, rede) é do caminho até o modelo
+            transitorio = not isinstance(e, ValueError)
             if verbose:
                 print(f"    [erro] {ultimo_erro[:150]}")
             if tentativa < config.VISAO_MAX_TENTATIVAS:
                 time.sleep(3 * tentativa)
 
-    return AnaliseFoto(url=url, ok=False, erro=ultimo_erro[:300], n_fotos=len(imagens))
+    return AnaliseFoto(url=url, ok=False, erro=ultimo_erro[:300], n_fotos=n_fotos,
+                       transitorio=transitorio)

@@ -358,7 +358,8 @@ class DB:
                 foto_problemas      = ?,
                 foto_resumo         = ?,
                 foto_confianca      = ?,
-                foto_analisada_em   = ?
+                foto_analisada_em   = ?,
+                foto_modelo         = ?
             WHERE url = ?
             """,
             (
@@ -384,6 +385,7 @@ class DB:
                 a.resumo or "",
                 a.confianca or "",
                 datetime.now(UTC).isoformat(timespec="seconds"),
+                getattr(a, "modelo", "") or None,
                 a.url,
             ),
         )
