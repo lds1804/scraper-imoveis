@@ -426,9 +426,14 @@
               {{ ic.icone('grafico') }} mediana local {{ c.mediana | moeda }}
               <span class="fraco">({{ c.preco_m2_medio | moeda }}/m²)</span>
             </li>
-            <li>
-              {{ ic.icone('ajustar') }} faixa {{ c.minimo | moeda }} – {{ c.maximo | moeda }}
-            </li>
+            {# Com a janela de 10 anos a base pode ter UMA venda. "faixa X – X"
+               (o mesmo número duas vezes) não informa nada, então nesse caso
+               a linha sai de cena. #}
+            {% if c.minimo and c.maximo and c.maximo > c.minimo %}
+              <li>
+                {{ ic.icone('ajustar') }} faixa {{ c.minimo | moeda }} – {{ c.maximo | moeda }}
+              </li>
+            {% endif %}
           </ul>
 
           <p class="bloco-nota">
@@ -443,12 +448,18 @@
             {% endif %}
             · confiança {{ c.confianca }}
             {% if c.area_ref %}· área ±{{ (25) }}%{% endif %}
+            {# idade da base: uma comparação feita só com venda de 2007 não é
+               preço de hoje, e a tela precisa dizer isso em vez de exibir o
+               número com a mesma cara de uma base recente. #}
+            {% if c.ano_mais_antigo %}
+              · vendas de {{ c.ano_mais_antigo }}{% if c.ano_mais_novo != c.ano_mais_antigo %} a {{ c.ano_mais_novo }}{% endif %}
+            {% endif %}
           </p>
 
           {% if a.transacoes %}
             <details class="comp-transacoes">
               <summary>
-                Ver as {{ a.transacoes | length }} vendas usadas na comparação
+                Ver {% if a.transacoes | length == 1 %}a venda usada{% else %}as {{ a.transacoes | length }} vendas usadas{% endif %} na comparação
               </summary>
               <table>
                 <thead>
@@ -482,10 +493,14 @@
                 <b>constr.</b> é a área construída e <b>terreno</b> é a área do
                 lote, ambas do cadastro fiscal da prefeitura. O R$/m² usa só a
                 área construída, para ser comparável entre casas.
-                Valores corrigidos pelo IPCA (IBGE) para o mês atual, para uma
-                venda de 2010 ser comparável com o preço de hoje.
-                Atenção: o IPCA é a inflação <b>geral</b> — imóveis podem ter
-                valorizado mais ou menos que isso.
+                Valores corrigidos pelo <b>IGP-M</b> (FGV) para o mês atual, e
+                só entram vendas dos últimos 10 anos — sem o corte de época,
+                uma venda de 2007 entraria na mesma média de uma de 2020 e
+                rebaixaria a referência.
+                {% if c.ano_mais_antigo and c.ano_mais_antigo <= 2015 %}
+                  <br><b>Atenção:</b> a venda mais antiga desta base é de
+                  <b>{{ c.ano_mais_antigo }}</b>, então a referência é fraca.
+                {% endif %}
               </p>
             </details>
           {% endif %}

@@ -5,20 +5,37 @@ R$ 200 mil em 2008 não é comparável a um de R$ 200 mil hoje — são valores 
 épocas diferentes. Para cruzar transações antigas com anúncios atuais, todo
 valor precisa ser trazido para a data de referência.
 
-ARMADILHA (descoberta na prática): a API clássica do BCB
-(`api.bcb.gov.br/dados/serie/...`) **não resolve DNS nesta máquina** —
-`getaddrinfo failed`. Os outros subdomínios do BCB resolvem (`www`, `olinda`),
-então é um problema específico daquele host, não da rede nem do firewall.
-Forçar o IP com header `Host` também não funciona (o TLS usa SNI).
+DUAS FONTES, e a escolha NÃO é indiferente:
 
-Solução: o **IBGE** publica o IPCA como número-índice na sua API de agregados,
-que resolve normalmente. É a fonte daqui.
+  IGP-M (padrão) — BCB, série 189. É o índice usado em contrato de ALUGUEL e
+    o mais citado no mercado imobiliário. Medido nesta base: é o que melhor
+    reconstrói o preço de venda observado.
 
-    GET https://servicodados.ibge.gov.br/api/v3/agregados/1737/
-        periodos/-300/variaveis/2266?localidades=N1[all]
+        GET https://api.bcb.gov.br/dados/serie/bcdata.sgs.189/dados?formato=json
 
-  agregado 1737 = IPCA
-  variavel 2266 = "IPCA - Número-índice (base: dezembro de 1993 = 100)"
+  IPCA — IBGE, agregado 1737, variável 2266 (número-índice, base dez/1993).
+    É a inflação GERAL, não a de imóveis.
+
+        GET https://servicodados.ibge.gov.br/api/v3/agregados/1737/
+            periodos/-400/variaveis/2266?localidades=N1[all]
+
+RETIFICAÇÃO (2026-10-06): o diagnóstico antigo dizia que `api.bcb.gov.br`
+"não resolve DNS nesta máquina" (`getaddrinfo failed`). **Estava errado.** O
+BCB resolve e responde em ~0,2 s. O que falhava era o **certificado TLS
+self-signed** do host — com `verify=False` tudo funciona. O mesmo engano já
+havia sido registrado para o portal de dados abertos da prefeitura. A lição:
+"não resolve" e "falha o TLS" produzem o mesmo sintoma no `requests`.
+
+O IGP-M é publicado como VARIAÇÃO % mensal, não número-índice. Então a série é
+acumulada uma vez aqui:
+
+    nivel = 100.0
+    for cada mes:
+        nivel *= (1 + variacao_pct / 100)
+        serie[AAAAMM] = nivel
+
+Validado contra os acumulados oficiais: 2020 +23,14% · 2021 +17,79% ·
+2022 +5,45% · 2023 −3,18% · 2024 +6,54% — todos batem na 2ª casa.
 
 Como o índice é encadeado (base fixa, não variação percentual), o reajuste é
 uma simples razão entre dois pontos:
@@ -41,11 +58,43 @@ import config
 
 CACHE = config.caminho("dados", "indices.json")
 
+# IGP-M: BCB série 189 (variação % mensal, precisa acumular)
+IGPM_URL = ("https://api.bcb.gov.br/dados/serie/bcdata.sgs.189/"
+            "dados?formato=json")
 # IPCA: agregado 1737, variável 2266 (número-índice, base dez/1993 = 100)
 IPCA_URL = ("https://servicodados.ibge.gov.br/api/v3/agregados/1737/"
             "periodos/-400/variaveis/2266?localidades=N1[all]")
 
 HEADERS = {"User-Agent": config.USER_AGENT, "Accept": "application/json"}
+
+# Qual índice corrige os valores. O usuário pediu o IGP-M, e a medição nesta
+# base confirma: o IGP-M reconstrói melhor o preço de venda observado do que o
+# IPCA (viés 0,93 contra 0,87 — mais perto de 1,00), e reduz os casos absurdos
+# (acima do dobro do real) de 9% para 7%. O IGP-M também é o índice do mercado
+# imobiliário (contratos de aluguel), enquanto o IPCA é a inflação geral.
+INDICE_PADRAO = "igpm"
+
+
+def _buscar_igpm(verbose: bool = False) -> dict[str, float]:
+    """Busca o IGP-M no BCB e ACUMULA em número-índice. {'AAAAMM': indice}.
+
+    O BCB devolve `[{'data': '01/06/1989', 'valor': '19.68'}, ...]`, onde o
+    valor é a variação percentual do MÊS, não um nível. Para reajustar é
+    preciso o nível acumulado: `nivel *= 1 + pct/100`.
+    """
+    # O certificado deste host é self-signed: sem `verify=False` o requests
+    # falha com SSLError, que dá a impressão de "host fora do ar".
+    r = requests.get(IGPM_URL, headers=HEADERS, timeout=60, verify=False)
+    r.raise_for_status()
+    nivel = 100.0
+    serie: dict[str, float] = {}
+    for linha in r.json():
+        dia, mes, ano = str(linha["data"]).split("/")
+        nivel *= 1 + float(linha["valor"]) / 100
+        serie[f"{ano}{mes}"] = nivel
+    if verbose:
+        print(f"IGP-M: {len(serie)} meses ({min(serie)} a {max(serie)})")
+    return serie
 
 
 def _buscar_ipca(verbose: bool = False) -> dict[str, float]:
@@ -59,35 +108,64 @@ def _buscar_ipca(verbose: bool = False) -> dict[str, float]:
     return {str(k): float(v) for k, v in serie.items() if v not in (None, "", "...")}
 
 
-def carregar(usar_cache: bool = True, verbose: bool = False) -> dict[str, float]:
-    """Carrega os índices (cache local primeiro, API depois)."""
+def carregar(indice: str = INDICE_PADRAO, usar_cache: bool = True,
+             verbose: bool = False) -> dict[str, float]:
+    """Carrega a série do índice pedido (cache local primeiro, API depois).
+
+    O cache guarda os DOIS índices, para alternar entre eles sem bater na API.
+    Cache antigo (só `ipca`) é reaproveitado: o que faltar é buscado.
+    """
+    guardado: dict = {}
     if usar_cache and os.path.exists(CACHE):
         try:
             with open(CACHE, encoding="utf-8") as f:
                 guardado = json.load(f)
-            if guardado.get("ipca"):
-                if verbose:
-                    print(f"índices do cache: {len(guardado['ipca'])} meses")
-                return guardado["ipca"]
-        except (OSError, json.JSONDecodeError, KeyError):
-            pass  # cache corrompido: busca de novo
+        except (OSError, json.JSONDecodeError):
+            guardado = {}  # cache corrompido: busca de novo
+    elif usar_cache:
+        # cache antigo pode estar no formato antigo (chave 'ipca' no topo)
+        try:
+            with open(CACHE, encoding="utf-8") as f:
+                guardado = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            guardado = {}
 
-    ipca = _buscar_ipca(verbose)
+    if guardado.get(indice):
+        if verbose:
+            print(f"{indice} do cache: {len(guardado[indice])} meses")
+        return guardado[indice]
+
+    serie = _buscar_igpm(verbose) if indice == "igpm" else _buscar_ipca(verbose)
+    guardado[indice] = serie
+    guardado.setdefault("fonte", {})
+    if isinstance(guardado["fonte"], str):
+        # cache no formato antigo (fonte era uma string)
+        guardado["fonte"] = {"ipca": guardado["fonte"]}
+    guardado["fonte"][indice] = (
+        "BCB serie 189 (IGP-M, acumulado)" if indice == "igpm"
+        else "IBGE agregado 1737/variavel 2266 (IPCA)")
     os.makedirs(os.path.dirname(CACHE), exist_ok=True)
     with open(CACHE, "w", encoding="utf-8") as f:
-        json.dump({"fonte": "IBGE agregado 1737/variavel 2266 (IPCA)",
-                   "ipca": ipca}, f, ensure_ascii=False, indent=1)
-    return ipca
+        json.dump(guardado, f, ensure_ascii=False, indent=1)
+    return serie
 
 
 class Reajustador:
-    """Traz valores históricos para a data de referência."""
+    """Traz valores históricos para a data de referência.
 
-    def __init__(self, indice: Optional[dict[str, float]] = None,
+    `indice` escolhe a série: "igpm" (padrão) ou "ipca".
+    """
+
+    def __init__(self, indice: str = INDICE_PADRAO,
+                 indice_serie: Optional[dict[str, float]] = None,
                  verbose: bool = False):
-        self.serie = indice if indice is not None else carregar(verbose=verbose)
+        self.nome = indice
+        if indice_serie is not None:
+            self.serie = indice_serie
+        else:
+            self.serie = carregar(indice, verbose=verbose)
         if not self.serie:
-            raise RuntimeError("série de índices vazia")
+            raise RuntimeError(f"série de índices '{indice}' vazia")
         self.ultimo = max(self.serie)
 
     def _indice_de(self, data: str) -> Optional[float]:

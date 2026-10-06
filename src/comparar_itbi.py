@@ -8,21 +8,27 @@ fotos e o texto não contam.
 CASCATA DE COMPARAÇÃO (do mais preciso para o mais amplo):
 
     1. mesmo LOGRADOURO + mesmo CEP   -> a mesma via, mesmo trecho
-    2. mesmo LOGRAADOURO              -> a mesma via (CEP do anúncio pode faltar)
+    2. mesmo LOGRADOURO              -> a mesma via (CEP do anúncio pode faltar)
     3. mesmo CEP                      -> a mesma região de CEP (poucas ruas)
 
 Para cada nível, só entram transações de área construída PARECIDA (±25%) —
 comparar uma casa de 60 m² com um sobrado de 300 m² não diz nada.
 
-VALORES: o ITBI cobre 2006–2026, então todo valor é corrigido pelo IPCA para
-a data de referência (ver `indices.py`). Sem isso, uma venda de 2010 pareceria
-uma pechincha só por ser antiga.
+VALORES: o ITBI cobre 2006–2026, então todo valor é corrigido para a data de
+referência pelo índice em `indices.py` (IGP-M por padrão, ver lá a medição que
+escolheu ele). Sem isso, uma venda de 2010 pareceria uma pechincha só por ser
+antiga.
 
-RESSALVA IMPORTANTE que vai no resultado: o IPCA é a inflação GERAL. Imóveis
-podem valorizar mais ou menos que isso. Então a média serve como referência
-"se o imóvel tivesse acompanhado a inflação", não como preço de mercado exato.
-Por isso o resultado guarda QUANTAS transações foram usadas e QUAIS foram —
-para você julgar, não para aceitar um número anônimo.
+JANELA DE 10 ANOS: além de corrigir o valor, a comparação DESCARTA vendas muito
+antigas. As duas coisas juntas é que resolvem — corrigir sem limitar a época
+ainda mistura 2007 com 2020 na mesma mediana. Ver `JANELA_ANOS` para o caso
+real que denunciou o defeito e a medição do viés.
+
+RESSALVA IMPORTANTE que vai no resultado: o IGP-M reajusta preços pelo índice,
+mas imóveis podem valorizar mais ou menos que isso. Então a média serve como
+referência "se o imóvel tivesse acompanhado o índice", não como preço de
+mercado exato. Por isso o resultado guarda QUANTAS transações foram usadas e
+QUAIS foram — para você julgar, não para aceitar um número anônimo.
 
 Uso:
     python comparar_itbi.py --preparar          # cria os índices (1ª vez)
@@ -94,6 +100,43 @@ LIMITE_TRANSACOES = 500
 # Mínimo de NÚMEROS distintos para agregar por número em vez de por transação.
 # Ver a explicação em `_mediana_robusta()`.
 MIN_NUMEROS = 3
+
+# ---------------------------------------------------------------------------
+# JANELA TEMPORAL — o defeito mais grave que a base tinha
+#
+# O ITBI cobre 20 anos (2006–2026) e a comparação usava TODAS as vendas da rua
+# ao mesmo tempo. Numa rua que vendeu em 2007 e em 2020, a mediana ficava entre
+# as duas épocas e nada mais era comparável com o preço de hoje.
+#
+# CASO REAL que denunciou o defeito (ZAP 2890722139, R Pedro Ferreira de Souza):
+#   nº 19, 160 m², 2020, FINANCIADA  -> R$ 860.008 a preços de hoje
+#   nº 19, 160 m², 2007, sem fin.    -> R$ 288.277
+#   nº 20, 148 m², 2007, sem fin.    -> R$ 256.743
+#   mediana de tudo = R$ 288.277 -> anúncio de R$ 900.000 marcado "+212%",
+#   quando na verdade estava a +5% (a venda financiada é o valor de mercado).
+#
+# MEDIDO (1.197 ruas, usando a venda financiada recente como gabarito):
+#   sem janela     -> viés 0,84  (a comparação SUBESTIMA ~16% e faz TODO
+#                                 anúncio parecer mais caro do que é)
+#   janela 10 anos -> viés 0,99  (praticamente sem viés)
+#
+# O viés não é um erro de caso isolado: 0,84 significa que o erro aparecia em
+# favor de "está caro" na base inteira.
+# ---------------------------------------------------------------------------
+JANELA_ANOS = 10
+
+# Se a janela deixar poucas transações, ela é ESTENDIDA em vez de perder a
+# comparação. Medido (1.199 ruas, gabarito = venda financiada recente):
+#
+#   min  viés  erro   casos que estenderam
+#    1    1,04  22,4%   8%   <- melhor equilíbrio
+#    2    1,02  22,2%  22%
+#    3    1,00  21,9%  38%   <- viés perfeito, mas 38% volta ao defeito
+#
+# Com min 3 a janela é abandonada em 38% dos casos — ou seja, em quase 4 de
+# cada 10 anúncios nada muda. Com min 1 ela vale em 92% e o viés fica em 1,04
+# (contra 0,84 sem janela nenhuma).
+MIN_DENTRO_JANELA = 1
 
 # ---------------------------------------------------------------------------
 # TRANSAÇÕES FINANCIADAS SÃO MAIS CONFIÁVEIS
@@ -301,6 +344,21 @@ def criar_tabela_comparacoes(conn: sqlite3.Connection) -> None:
     if "area_terreno" not in cols_det:
         conn.execute("ALTER TABLE comparacoes_detalhe ADD COLUMN area_terreno REAL")
     conn.commit()
+    # idade das vendas usadas: permite avisar "base antiga" na tela em vez de
+    # apresentar uma comparação de 2007 como se fosse preço de hoje
+    #   indice_reajuste/data_referencia: com que índice e para que mês os
+    #   valores foram trazidos. Sem isso, uma base corrigida pelo IPCA (ou
+    #   numa referência antiga) pareceria igual a uma corrigida pelo IGP-M —
+    #   é o que permite saber quando precisa RECALCULAR.
+    cols_comp = {r[1] for r in conn.execute("PRAGMA table_info(comparacoes)")}
+    for nova, tipo in (("ano_mais_antigo", "INTEGER"),
+                       ("ano_mais_novo", "INTEGER"),
+                       ("indice_reajuste", "TEXT"),
+                       ("data_referencia", "TEXT"),
+                       ("aviso_base_antiga", "TEXT")):
+        if nova not in cols_comp:
+            conn.execute(f"ALTER TABLE comparacoes ADD COLUMN {nova} {tipo}")
+    conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -355,11 +413,34 @@ def _transacoes(conn: sqlite3.Connection, anuncio: sqlite3.Row,
     # passe 1 (financiadas) tem prioridade; passe 2 é o fallback
     passes = ((f"AND {_CLAUSULA_FINANCIADO}", True), ("", False))
 
+    # A JANELA é ancorada na venda mais recente encontrada no nível: se a rua
+    # só tem venda até 2014, usar "hoje - 10 anos" não acharia nada. O que
+    # importa é comparar com a época mais recente que aquela rua tem.
+    corte = None
+
+    def _dentro(linhas: list) -> list:
+        """Só as transações dentro da janela, ou tudo se a janela esvaziar."""
+        if not linhas:
+            return linhas
+        mais_nova = max(t["data_transacao"] or "00000000" for t in linhas)
+        if len(mais_nova) != 8:
+            return linhas
+        try:
+            limite = int(mais_nova[:4]) - JANELA_ANOS
+        except ValueError:
+            return linhas
+        recentes = [t for t in linhas
+                    if (t["data_transacao"] or "") >= f"{limite:04d}0000"]
+        # poucas transações recentes: estender é melhor que perder a base
+        if len(recentes) < MIN_DENTRO_JANELA:
+            return linhas
+        return recentes
+
     melhor = ([], "", False)
     for extra, so_fin in passes:
         for filtro, params, fonte in geograficas:
             sql = base.format(filtro=filtro, extra=extra)
-            linhas = conn.execute(sql, (lo, hi, *params)).fetchall()
+            linhas = _dentro(conn.execute(sql, (lo, hi, *params)).fetchall())
             if len(linhas) >= MIN_TRANSACOES:
                 return linhas, fonte, so_fin
             if linhas and not melhor[0]:
@@ -475,8 +556,126 @@ def comparar_anuncio(conn: sqlite3.Connection, anuncio: sqlite3.Row,
         "razao": razao,
         "preco_m2_medio": med,
         "confianca": confianca,
+        # idade das vendas: a interface usa para avisar quando a base é antiga
+        # em vez de apresentar preço de 2007 como se fosse de hoje
+        "ano_mais_antigo": ano_de(min(t["data_transacao"] for t in transacoes
+                                      if t["data_transacao"])),
+        "ano_mais_novo": ano_de(max(t["data_transacao"] for t in transacoes
+                                    if t["data_transacao"])),
         "transacoes": transacoes,
     }
+
+
+def ano_de(data: Optional[str]) -> Optional[int]:
+    """'20170628' -> 2017. None se a data não servir."""
+    if data and len(str(data)) == 8 and str(data).isdigit():
+        return int(str(data)[:4])
+    return None
+
+
+def esta_atualizada(conn: sqlite3.Connection, reaj: indices.Reajustador) -> tuple[bool, str]:
+    """Diz se as comparações já refletem o índice e a referência atuais.
+
+    Por que existe: a referência se move TODO MÊS (sai IGP-M novo). Sem esta
+    checagem não havia como saber se a base estava corrigida para agosto ou
+    para janeiro — o número na tela parecia igual. Agora a própria tabela diz
+    com que índice e com que mês ela foi feita, e comparar isso com a série
+    atual responde "precisa recalcular?" em uma consulta.
+
+    Devolve (atualizada, motivo).
+    """
+    linhas = conn.execute(
+        """SELECT indice_reajuste, data_referencia, data_referencia AS ref,
+                  COUNT(*) AS n
+           FROM comparacoes
+           WHERE data_referencia IS NOT NULL AND data_referencia <> ''
+           GROUP BY indice_reajuste, data_referencia
+           ORDER BY n DESC""").fetchall()
+
+    if not linhas:
+        return False, "nenhuma comparação com registro de reajuste"
+
+    (indice, ref, _, n) = linhas[0]
+    if indice != reaj.nome:
+        return False, (f"corrigido pelo {indice or '(sem registro)'}, "
+                       f"agora o índice é {reaj.nome}")
+    if ref != reaj.referencia:
+        return False, (f"referência {ref} (o mês mais recente é "
+                       f"{reaj.referencia}) — saiu dado novo")
+    return True, f"em dia: {reaj.nome} até {ref}"
+
+
+def atualizar_se_precisar(conn: sqlite3.Connection, reaj: indices.Reajustador,
+                          forcar: bool = False,
+                          verbose: bool = True) -> int:
+    """Recalcula SÓ se o índice mudou ou saiu um mês novo de IGP-M.
+
+    É o gatilho que o usuário pediu ("recalcular tudo quando sair um novo dado
+    de igpm"): roda sem custo quase nenhum no caso comum, e faz o trabalho
+    completo quando o índice realmente muda.
+
+    Custo medido: os 537 mil valores do ITBI levam ~10 s e as 3.156 comparações
+    ~3 s — barato o bastante para rodar a cada saída mensal do índice.
+    """
+    # garante que a tabela e as colunas novas existam ANTES de consultá-las:
+    # sem isso, a checagem quebra numa base que ainda não foi migrada
+    criar_tabela_comparacoes(conn)
+    ok, motivo = esta_atualizada(conn, reaj)
+    if ok and not forcar:
+        if verbose:
+            print(f"nada a fazer — {motivo}")
+        return 0
+    if verbose:
+        print(f"recalculando: {motivo}")
+
+    n_corrigidos = reingestar_valores(conn, reaj, verbose=verbose)
+    n_comp = calcular(conn, reaj, refazer=True, verbose=verbose)
+    if verbose:
+        print(f"\n{n_corrigidos:,d} valores do ITBI e {n_comp:,d} comparações "
+              f"refeitos com o {reaj.nome} até {reaj.referencia}")
+    return n_comp
+
+
+def reingestar_valores(conn: sqlite3.Connection, reaj: indices.Reajustador,
+                       verbose: bool = True) -> int:
+    """Recorrige os valores do ITBI com o índice em vigor.
+
+    537 mil linhas em ~10 s. O fator é calculado por DATA (só ~250 meses
+    distintos), não por linha: sem esse cache seriam 537 mil buscas.
+    """
+    ref = reaj.referencia
+    linhas = conn.execute(
+        "SELECT id, valor_transacao, valor_venal, data_transacao FROM itbi"
+    ).fetchall()
+    cache: dict[str, float] = {}
+    lote = []
+    gravados = 0
+    for rid, v, vv, data in linhas:
+        if data not in cache:
+            cache[data] = reaj.fator(data) if data else 1.0
+        f = cache[data]
+        lote.append((round(v * f, 2) if v is not None else None,
+                     round(vv * f, 2) if vv is not None else None,
+                     round(f, 6), ref, rid))
+        if len(lote) >= 50000:
+            conn.executemany(
+                """UPDATE itbi SET valor_transacao_corrigido=?,
+                   valor_venal_corrigido=?, fator_reajuste=?,
+                   data_referencia=? WHERE id=?""", lote)
+            conn.commit()
+            gravados += len(lote)
+            lote = []
+    if lote:
+        conn.executemany(
+            """UPDATE itbi SET valor_transacao_corrigido=?,
+               valor_venal_corrigido=?, fator_reajuste=?,
+               data_referencia=? WHERE id=?""", lote)
+        conn.commit()
+        gravados += len(lote)
+    if verbose:
+        print(f"  valores do ITBI recorrigidos: {gravados:,d} "
+              f"({len(cache):,d} datas distintas)")
+    return gravados
 
 
 def calcular(conn: sqlite3.Connection, reaj: indices.Reajustador,
@@ -522,13 +721,17 @@ def calcular(conn: sqlite3.Connection, reaj: indices.Reajustador,
             """INSERT OR REPLACE INTO comparacoes
                (anuncio_url, fonte, n_transacoes, n_numeros, n_financiadas,
                 metodo, area_ref, mediana, media, minimo, maximo, preco_pedido,
-                razao, preco_m2_medio, confianca, calculado_em)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
+                razao, preco_m2_medio, confianca, calculado_em,
+                indice_reajuste, data_referencia,
+                ano_mais_antigo, ano_mais_novo)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?,?,?,?)""",
             (res["anuncio_url"], res["fonte"], res["n_transacoes"],
              res["n_numeros"], res["n_financiadas"], res["metodo"],
              res["area_ref"], res["mediana"], res["media"], res["minimo"],
              res["maximo"], res["preco_pedido"], res["razao"],
-             res["preco_m2_medio"], res["confianca"]),
+             res["preco_m2_medio"], res["confianca"],
+             reaj.nome, reaj.referencia,
+             res["ano_mais_antigo"], res["ano_mais_novo"]),
         )
         conn.executemany(
             """INSERT INTO comparacoes_detalhe
@@ -755,7 +958,7 @@ def detalhar(conn: sqlite3.Connection, alvo: str) -> int:
         print(f"{data:>10s} {t['area']:>6.0f}m² {t['valor_corrigido']:>14,.0f} "
               f"{t['preco_m2']:>11,.0f}  {t['logradouro'][:26]} "
               f"{t['numero'] or ''} (cep {t['cep']})")
-    print("\nRESSALVA: o IPCA é a inflação GERAL (IBGE). Imóveis podem ter")
+    print("\nRESSALVA: o IGP-M é um índice de preços AO PRODUTOR/ATACADO, e o")
     print("valorizado mais ou menos que isso, então trate a mediana como")
     print("referência, não como preço de mercado exato.")
     return 0
@@ -766,6 +969,13 @@ def main() -> int:
     p.add_argument("--preparar", action="store_true",
                    help="cria/preenche as colunas normalizadas e sai")
     p.add_argument("--refazer", action="store_true", help="recalcula tudo")
+    p.add_argument("--atualizar", action="store_true",
+                   help="recalcula SÓ se o índice mudou ou saiu mês novo "
+                        "(para agendar após a publicação do IGP-M)")
+    p.add_argument("--indice", choices=("igpm", "ipca"), default=None,
+                   help="índice de correção (padrão: configurado em indices.py)")
+    p.add_argument("--forcar", action="store_true",
+                   help="com --atualizar, refaz mesmo se já estiver em dia")
     p.add_argument("--limite", type=int, default=None, help="máx. de anúncios")
     p.add_argument("--amostra", type=int, default=20, metavar="N",
                    help="quantas comparações listar")
@@ -807,9 +1017,16 @@ def main() -> int:
         return 0
 
     preparar(conn, verbose=False)
-    reaj = indices.Reajustador(verbose=False)
-    print(f"referência de reajuste: {reaj.referencia} (IPCA/IBGE)")
+    reaj = indices.Reajustador(args.indice or indices.INDICE_PADRAO, verbose=False)
+    print(f"referência de reajuste: {reaj.referencia} ({reaj.nome.upper()})")
     print(f"filtros de qualidade  : {descrever_filtros()}\n")
+
+    if args.atualizar:
+        # o gatilho mensal: sem custo quando nada mudou, completo quando muda
+        atualizar_se_precisar(conn, reaj, forcar=args.forcar)
+        conn.close()
+        return 0
+
     calcular(conn, reaj, refazer=args.refazer, limite=args.limite)
     print()
     relatorio(conn, so_abaixo=args.abaixo, limite=args.amostra,

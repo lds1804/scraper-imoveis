@@ -347,7 +347,7 @@
                   {% elif a.comp.confianca == 'baixa' %}· confiança baixa{% endif %}
                 </span>
               </div>
-              <div class="comp-nums" title="Baseado nas vendas reais registradas na prefeitura (ITBI), corrigidas pelo IPCA">
+              <div class="comp-nums" title="Baseado nas vendas reais registradas na prefeitura (ITBI), dos últimos 10 anos e corrigidas pelo IGP-M">
                 mediana {{ a.comp.mediana | moeda }}
                 · {{ a.comp.n_transacoes }} venda{% if a.comp.n_transacoes != 1 %}s{% endif %}
                 {%- if a.comp.n_financiadas %} · {{ a.comp.n_financiadas }} financiada{% if a.comp.n_financiadas != 1 %}s{% endif %}{% endif %}
@@ -673,6 +673,85 @@
 
       resumo();
     });
+
+    // ---------------------------------------------------------------------
+    // VOLTAR NO MESMO PONTO DA LISTAGEM
+    //
+    // Problema: ao abrir um anúncio e clicar em "Voltar", a listagem voltava
+    // para o TOPO — quem estava examinando o card 40 de 60 perdia a posição a
+    // cada anúncio aberto.
+    //
+    // O caminho do navegador (botão voltar do próprio navegador) já preserva a
+    // rolagem; o que quebrava era o NOSSO link "Voltar". Ele é um `href` para a
+    // listagem, então é uma navegação NOVA: a página é remontada e a rolagem
+    // vai a zero.
+    //
+    // Solução: guardar a posição antes de sair e restaurar na volta.
+    //  - `sessionStorage` (não `localStorage`): a posição vale para ESTA aba e
+    //    some ao fechá-la. Em `localStorage` ela sobreviveria por dias e
+    //    jogaria a pessoa para o meio da lista numa visita nova.
+    //  - guardamos junto a URL da listagem: posição de uma busca não pode ser
+    //    aplicada a outra (filtros diferentes têm alturas diferentes).
+    // ---------------------------------------------------------------------
+    var CHAVE_ROLAGEM = "rolagem:" + location.pathname + location.search;
+
+    function guardarRolagem() {
+      try {
+        sessionStorage.setItem(CHAVE_ROLAGEM, String(Math.round(window.scrollY)));
+      } catch (e) {
+        /* modo privado pode bloquear o sessionStorage: seguir sem guardar */
+      }
+    }
+
+    // clique em qualquer link para um anúncio: registra a posição atual
+    document.querySelectorAll('a[href*="/anuncio/"]').forEach(function (a) {
+      a.addEventListener("click", guardarRolagem);
+    });
+
+    // Ctrl/Cmd+clique abre em outra aba e não desmonta esta página; o
+    // "antes de sair" cobre o caso de navegação do navegador (voltar/avançar).
+    window.addEventListener("beforeunload", guardarRolagem);
+
+    (function restaurarRolagem() {
+      var guardado = null;
+      try {
+        guardado = sessionStorage.getItem(CHAVE_ROLAGEM);
+      } catch (e) {
+        return;
+      }
+      if (guardado === null) return;
+
+      var alvo = Number(guardado);
+      if (!isFinite(alvo) || alvo <= 0) return;
+
+      // Uma passada só NÃO basta: as fotos dos cards entram com
+      // `loading="lazy"`, então a página nasce mais curta do que era e o
+      // navegador corta o scroll no limite do documento (medido: pedia 3000 e
+      // parava em 1586). Insistimos enquanto o scroll não alcançar o alvo, e
+      // paramos quando alcançar ou quando o documento estiver completo e
+      // ainda assim não der — aí é porque a página realmente ficou mais curta
+      // (menos cards que antes), e ficar repetindo não ajudaria.
+      var tentativas = 0;
+      var MAX = 25;
+      function tentar() {
+        window.scrollTo(0, alvo);
+        tentativas += 1;
+        var faltou = alvo - window.scrollY;
+        if (faltou <= 2) return;                 // chegou
+        if (tentativas >= MAX) return;           // desistiu
+        setTimeout(tentar, 50);
+      }
+      tentar();
+
+      // As imagens que terminam de carregar mudam a altura DEPOIS; uma última
+      // tentativa no `load` evita depender só do temporizador.
+      window.addEventListener("load", function () {
+        if (alvo - window.scrollY > 2) {
+          tentativas = 0;
+          tentar();
+        }
+      });
+    })();
   </script>
 </body>
 </html>
