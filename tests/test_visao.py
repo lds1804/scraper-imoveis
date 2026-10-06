@@ -159,3 +159,38 @@ def test_lote_aborta_depois_de_falhas_de_transporte_seguidas(monkeypatch, capsys
     assert av.main() == 1
     assert av.FALHAS_SEGUIDAS_MAX <= len(chamadas) < 40
     assert "ABORTADO" in capsys.readouterr().out
+
+
+def test_caca_login_ja_logado_nao_abre_nada(monkeypatch, capsys):
+    from cacaimoveis import login
+
+    abriu = []
+    monkeypatch.setattr(login, "achar_claude", lambda: "claude")
+    monkeypatch.setattr(login, "verificar_login_claude", lambda: None)
+    monkeypatch.setattr(login.subprocess, "call", lambda *a, **k: abriu.append(1))
+    assert login.main() == 0
+    assert abriu == [] and "já está logado" in capsys.readouterr().out
+
+
+def test_caca_login_abre_o_claude_e_confere_depois(monkeypatch, capsys):
+    from cacaimoveis import login
+
+    estados = iter(["não está logado", None])        # antes: sem login; depois: logado
+    abriu = []
+    monkeypatch.setattr(login, "achar_claude", lambda: "C:/x/claude.exe")
+    monkeypatch.setattr(login, "verificar_login_claude", lambda: next(estados))
+    monkeypatch.setattr(login.subprocess, "call", lambda cmd, **k: abriu.append(cmd))
+    monkeypatch.setattr("builtins.input", lambda *a: "")
+    assert login.main() == 0
+    assert abriu == [["C:/x/claude.exe"]]
+    assert "Login confirmado" in capsys.readouterr().out
+
+
+def test_caca_login_avisa_se_o_login_nao_pegou(monkeypatch):
+    from cacaimoveis import login
+
+    monkeypatch.setattr(login, "achar_claude", lambda: "claude")
+    monkeypatch.setattr(login, "verificar_login_claude", lambda: "não está logado")
+    monkeypatch.setattr(login.subprocess, "call", lambda *a, **k: 0)
+    monkeypatch.setattr("builtins.input", lambda *a: "")
+    assert login.main() == 1

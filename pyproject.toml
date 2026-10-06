@@ -21,6 +21,7 @@ where = ["src"]
 caca-web = "cacaimoveis.webapp:main"
 caca-backup = "cacaimoveis.backup:main"
 caca-atualizar = "cacaimoveis.atualizar:main"
+caca-login = "cacaimoveis.login:main"
 caca-iptu = "cacaimoveis.iptu:main"
 caca-coletar = "cacaimoveis.coletar_tudo:main"
 caca-imovelweb = "cacaimoveis.main:main"
