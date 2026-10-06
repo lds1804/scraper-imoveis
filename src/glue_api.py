@@ -36,6 +36,21 @@ from scraper_browser import Anuncio
 
 GLUE_URL = "https://glue-api.vivareal.com/v2/listings"
 
+# Momento da última chamada à API (relógio monotônico). O intervalo mínimo é
+# garantido AQUI, na única função que fala com a API, e não no laço de quem
+# chama: antes a pausa ficava só entre páginas do mesmo bairro, e a troca de
+# bairro disparava a próxima requisição na hora.
+_ultima_chamada = 0.0
+
+
+def _respeitar_intervalo() -> None:
+    """Espera o que falta para cumprir `config.GLUE_DELAY_S` (Crawl-delay)."""
+    global _ultima_chamada
+    falta = config.GLUE_DELAY_S - (time.monotonic() - _ultima_chamada)
+    if falta > 0:
+        time.sleep(falta)
+    _ultima_chamada = time.monotonic()
+
 # `unitTypes` da API -> tipo interno. É o dado CONFIÁVEL de tipo de imóvel
 # (ao contrário da OLX, que só permite inferir pelo título).
 _UNIT_CASA = "HOME"
@@ -277,6 +292,7 @@ def buscar_pagina(bairro: str, pagina: int = 1, tamanho: int | None = None,
     if config.PRECO_MIN:
         params["priceMin"] = int(config.PRECO_MIN)
 
+    _respeitar_intervalo()
     r = requests.get(
         GLUE_URL, params=params, headers=_headers(portal),
         timeout=config.TIMEOUT,
@@ -332,8 +348,7 @@ def coletar_bairro(bairro: str, portal: str = "zap",
             break  # página repetida ou vazia: acabou
         if pagina * tamanho >= total:
             break
-        if pagina < limite:
-            time.sleep(config.GLUE_DELAY_S)
+        # a pausa entre páginas é feita por `buscar_pagina` (Crawl-delay)
 
 
 def tem_api(portal: str = "zap") -> bool:

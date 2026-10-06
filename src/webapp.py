@@ -8,13 +8,13 @@ Uso:
 from __future__ import annotations
 
 import os
-import re
 import sqlite3
 from types import SimpleNamespace
 
 from flask import (
     Flask,
     abort,
+    g,
     render_template,
     request,
     send_from_directory,
@@ -216,9 +216,36 @@ def _chips_ativos(filtros: dict) -> list[dict]:
 
 
 def _conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(config.DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """A conexão da requisição atual (uma só, fechada no fim da requisição).
+
+    Antes cada rota abria a sua e fechava "na mão" no fim — e `index()` abria
+    DUAS, das quais a primeira nunca era fechada. Qualquer exceção no meio
+    também deixava a conexão aberta. Guardar em `flask.g` e fechar no
+    `teardown_appcontext` resolve os dois casos.
+    """
+    if "db" not in g:
+        g.db = sqlite3.connect(config.DB_PATH)
+        g.db.row_factory = sqlite3.Row
+    return g.db
+
+
+@app.teardown_appcontext
+def _fechar_conn(_exc) -> None:
+    conn = g.pop("db", None)
+    if conn is not None:
+        conn.close()
+
+
+def _numero_da_url(valor: str, tipo=float):
+    """Converte um filtro numérico da URL; valor inválido vira "sem filtro".
+
+    `?preco_max=abc` derrubava a página com erro 500. Ignorar o valor é o
+    comportamento esperado de um campo de busca.
+    """
+    try:
+        return tipo(valor.replace(",", ".")) if valor else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _tem_comparacoes(conn: sqlite3.Connection) -> bool:
@@ -414,12 +441,8 @@ def _resolver_bairros(valores: list[str]) -> list[str]:
     Parque da Lapa, Vila Ipê) não entra no `IN`, senão o filtro não traria
     nada e pareceria quebrado.
     """
-    conn = _conn()
-    try:
-        existentes = [r[0] for r in conn.execute(
-            "SELECT DISTINCT bairro FROM anuncios WHERE COALESCE(bairro,'')<>''")]
-    finally:
-        conn.close()
+    existentes = [r[0] for r in _conn().execute(
+        "SELECT DISTINCT bairro FROM anuncios WHERE COALESCE(bairro,'')<>''")]
 
     # índice: "agua branca" -> "Água Branca"
     por_chave = {_sem_acento(b): b for b in existentes}
@@ -527,12 +550,10 @@ def _fotos_locais_lote(conn: sqlite3.Connection,
 
 def _fotos_locais(anuncio_url: str) -> list[str]:
     """Retorna caminhos web (relativos) das fotos já baixadas do anúncio."""
-    conn = _conn()
-    rows = conn.execute(
+    rows = _conn().execute(
         "SELECT arquivo_local FROM fotos WHERE anuncio_url = ? ORDER BY id",
         (anuncio_url,),
     ).fetchall()
-    conn.close()
     caminhos = []
     for r in rows:
         p = r["arquivo_local"].replace("\\", "/")
@@ -554,17 +575,23 @@ def _slug_fotos(anuncio_url: str) -> str:
 # ---------------------------------------------------------------------------
 @app.route("/")
 def index():
-    conn = _conn()
-
     # MÚLTIPLA escolha: o formulário manda o mesmo nome várias vezes
     # (?bairro=Lapa&bairro=Pirituba) e `getlist` devolve todos. O código
     # antigo usava `get` e ficava só com o PRIMEIRO — o usuário marcaria
     # três bairros e a busca silenciosamente ignoraria dois.
     bairros_sel = [b.strip() for b in request.args.getlist("bairro") if b.strip()]
     pisos_sel = [p.strip() for p in request.args.getlist("piso_quintal") if p.strip()]
+    # valor que não é número é descartado aqui, antes de chegar ao SQL e
+    # aos chips (que também convertem)
     preco_max = request.args.get("preco_max", "").strip()
     terreno_min = request.args.get("terreno_min", "").strip()
     quartos_min = request.args.get("quartos_min", "").strip()
+    if _numero_da_url(preco_max) is None:
+        preco_max = ""
+    if _numero_da_url(terreno_min) is None:
+        terreno_min = ""
+    if _numero_da_url(quartos_min, int) is None:
+        quartos_min = ""
     so_quintal = request.args.get("so_quintal") == "1"
     so_financiamento = request.args.get("so_financiamento") == "1"
     sem_financiamento = request.args.get("sem_financiamento") == "1"
@@ -633,13 +660,13 @@ def index():
             sql += " AND 1=0"
     if preco_max:
         sql += " AND a.preco IS NOT NULL AND a.preco <= ?"
-        params.append(float(preco_max))
+        params.append(_numero_da_url(preco_max))
     if terreno_min:
         sql += " AND a.area_terreno IS NOT NULL AND a.area_terreno >= ?"
-        params.append(float(terreno_min))
+        params.append(_numero_da_url(terreno_min))
     if quartos_min:
         sql += " AND a.quartos IS NOT NULL AND a.quartos >= ?"
-        params.append(int(quartos_min))
+        params.append(_numero_da_url(quartos_min, int))
     if so_quintal:
         sql += " AND a.match_quintal = 1"
     if so_financiamento:
@@ -746,7 +773,11 @@ def index():
         # A razão vem no próprio SELECT (`_razao`) — pedir numa segunda
         # consulta seria uma ida ao banco a mais para o mesmo dado.
         sql_nota = sql.replace("SELECT a.*", "SELECT a.*, c.razao AS _razao", 1)
-        todas = conn.execute(sql_nota, params).fetchall()
+        # NÃO reaproveitar o nome `todas`: ele é o filtro "mostrar todas as
+        # cópias". Sobrescrevê-lo com a lista de linhas fazia a caixa aparecer
+        # MARCADA na ordem padrão (lista não vazia = verdadeiro no template),
+        # e reenviar o formulário ligava o filtro sem o usuário pedir.
+        linhas = conn.execute(sql_nota, params).fetchall()
 
         def _chave(a):
             nota = _nota_encaixe(dict(a), a["_razao"] if tem_comp else None)
@@ -754,9 +785,9 @@ def index():
             # fim; o desempate é o menor preço, que era o critério antigo
             return (nota is None, -(nota or 0), a["preco"] or 9e12)
 
-        todas.sort(key=_chave)
+        linhas.sort(key=_chave)
         inicio = (pagina - 1) * POR_PAGINA
-        anuncios = todas[inicio:inicio + POR_PAGINA]
+        anuncios = linhas[inicio:inicio + POR_PAGINA]
     else:
         anuncios = conn.execute(
             sql + " LIMIT ? OFFSET ?",
@@ -776,7 +807,6 @@ def index():
     faixas = _copias_dos_grupos(conn, anuncios) if tem_dup else {}
     # uma consulta só para as fotos de todos os cards da página
     fotos_lote = _fotos_locais_lote(conn, urls)
-    conn.close()
 
     cards = []
     for a in anuncios:
@@ -939,7 +969,6 @@ def detalhe(anuncio_url: str):
     copias: list[dict] = []
     if a is not None:
         copias = _copias_do_anuncio(conn, anuncio_url, a["dup_grupo"])
-    conn.close()
     if a is None:
         abort(404)
 
@@ -971,84 +1000,16 @@ def foto(caminho: str):
 
 
 # ---------------------------------------------------------------------------
-# Ponte para quando o Playwright está bloqueado pelo Cloudflare
+# Ponte do navegador (só na máquina local — ver `ponte.py`)
 # ---------------------------------------------------------------------------
-# O navegador integrado do VS Code costuma ter o clearance do Cloudflare válido
-# quando o perfil do Playwright já foi bloqueado. Esta rota recebe o HTML da
-# listagem e grava em disco, para o parser Python processar depois.
-# Ferramenta de uso pessoal e local (só aceita 127.0.0.1).
-PONTE_DIR = "html_ponte"
+if not config.EM_PRODUCAO:
+    import ponte
 
-
-@app.route("/_ponte/html", methods=["POST", "OPTIONS"])
-def _ponte_receber_html():
-    if request.method == "OPTIONS":
-        resp = app.make_default_options_response()
-    else:
-        nome = request.args.get("nome", "pagina")
-        nome = re.sub(r"[^A-Za-z0-9_.-]", "_", nome)[:120]
-        os.makedirs(PONTE_DIR, exist_ok=True)
-        with open(os.path.join(PONTE_DIR, f"{nome}.html"), "wb") as f:
-            f.write(request.get_data())
-        resp = app.response_class('{"ok":true}', mimetype="application/json")
-
-    # o navegador posta de outro domínio (imovelweb.com.br) -> libera CORS
-    resp.headers["Access-Control-Allow-Origin"] = "*"
-    resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    return resp
-
-
-@app.route("/_ponte/limpar", methods=["POST"])
-def _ponte_limpar():
-    """Apaga os HTMLs temporários depois de processar."""
-    if os.path.isdir(PONTE_DIR):
-        import shutil
-
-        shutil.rmtree(PONTE_DIR, ignore_errors=True)
-    return {"ok": True}
-
-
-@app.route("/_ponte/alvos")
-def _ponte_alvos():
-    """Devolve a lista de anúncios que precisam de página de detalhe.
-
-    O navegador usa isso para saber o que capturar (ele não lê o SQLite).
-    """
-    import json as _json
-
-    # fica em `dados/`, não ao lado deste arquivo (que está em `src/`)
-    caminho = config.caminho("dados", "_alvos_detalhe.json")
-    if not os.path.exists(caminho):
-        return {"total": 0, "alvos": []}
-    with open(caminho, encoding="utf-8") as f:
-        alvos = _json.load(f)
-
-    resp = app.response_class(
-        _json.dumps({"total": len(alvos), "alvos": alvos}, ensure_ascii=False),
-        mimetype="application/json",
-    )
-    resp.headers["Access-Control-Allow-Origin"] = "*"
-    return resp
-
-
-@app.route("/_ponte/progresso")
-def _ponte_progresso():
-    """Quantos HTMLs de detalhe já foram capturados."""
-    n = 0
-    if os.path.isdir(PONTE_DIR):
-        n = sum(
-            1 for f in os.listdir(PONTE_DIR)
-            if f.lower().startswith("det") and f.lower().endswith(".html")
-            and os.path.getsize(os.path.join(PONTE_DIR, f)) > 100_000
-        )
-    resp = app.response_class(
-        f'{{"capturados": {n}}}', mimetype="application/json"
-    )
-    resp.headers["Access-Control-Allow-Origin"] = "*"
-    return resp
+    app.register_blueprint(ponte.bp)
 
 
 if __name__ == "__main__":
     os.makedirs(config.FOTOS_DIR, exist_ok=True)
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    # debug liga o console interativo do Werkzeug, que executa código: só
+    # fora de produção, e sempre preso a 127.0.0.1
+    app.run(host="127.0.0.1", port=5000, debug=not config.EM_PRODUCAO)

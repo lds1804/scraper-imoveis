@@ -193,7 +193,11 @@ OLX_MAX_TENTATIVAS_BAIRRO = 3
 # O `size` tem LIMITE: 30 funciona, 32 devolve HTTP 400. Verificado.
 GLUE_PAGINA_TAMANHO = 30
 GLUE_MAX_PAGINAS = 20
-GLUE_DELAY_S = 1.0
+# O robots.txt do ZAP e do VivaReal declara `Crawl-delay: 10` para todos os
+# robôs (conferido em 2026-10-05, ver docs/plano-deploy-aws.md §2). A API é o
+# mesmo backend dos dois sites, então o pedido do dono vale para ela também.
+# A coleta fica mais lenta (20 páginas = ~3 min por bairro), e é o preço.
+GLUE_DELAY_S = 10.0
 
 # ---------------------------------------------------------------------------
 # QuintoAndar
@@ -261,10 +265,23 @@ def caminho(*partes: str) -> str:
     return _os.path.join(RAIZ, *partes)
 
 # ---------------------------------------------------------------------------
+# Ambiente
+# ---------------------------------------------------------------------------
+# "local" (padrão) é a máquina de trabalho: liga o modo debug do Flask e as
+# rotas `/_ponte/*`, que gravam e APAGAM arquivos em disco a pedido do
+# navegador. "producao" é o site publicado: nada disso pode estar exposto lá.
+#   PowerShell:  $env:CACA_AMBIENTE = "producao"
+AMBIENTE = _os.environ.get("CACA_AMBIENTE", "local").strip().lower()
+EM_PRODUCAO = AMBIENTE == "producao"
+
+# ---------------------------------------------------------------------------
 # Armazenamento local
 # ---------------------------------------------------------------------------
-DB_PATH = caminho("imoveis.db")
-FOTOS_DIR = caminho("fotos")
+# `CACA_DB` troca o banco sem mexer no código: o site publicado lê o `site.db`
+# (46 MB) em vez do `imoveis.db` de trabalho, e os testes usam um banco
+# pequeno criado na hora.
+DB_PATH = _os.environ.get("CACA_DB") or caminho("imoveis.db")
+FOTOS_DIR = _os.environ.get("CACA_FOTOS") or caminho("fotos")
 
 # Quantas fotos BAIXAR por anúncio (0 = todas).
 #
