@@ -147,3 +147,22 @@ def test_backup_copia_e_rotaciona(tmp_path, monkeypatch):
     conn = sqlite3.connect(feitos[3])
     assert conn.execute("SELECT COUNT(*) FROM anuncios").fetchone()[0] > 0
     conn.close()
+
+
+def test_foto_404_marca_o_anuncio_como_removido(tmp_path, monkeypatch):
+    import types
+
+    from cacaimoveis import storage
+
+    db = storage.DB(str(tmp_path / "t.db"))
+    db.conn.execute("INSERT INTO anuncios (url, fotos_urls) VALUES ('vivo', 'http://x/1.jpg')")
+    db.conn.execute("INSERT INTO anuncios (url, fotos_urls) VALUES ('morto', 'http://x/404.jpg')")
+    db.conn.commit()
+    monkeypatch.setattr("requests.head", lambda u, **k: types.SimpleNamespace(
+        status_code=404 if "404" in u else 200))
+    baixados = []
+    monkeypatch.setattr(storage, "baixar_fotos", lambda a, ctx, d: baixados.append(a.url) or 1)
+    assert storage.baixar_fotos_pendentes(db) == (1, 1)
+    assert baixados == ["vivo"]
+    assert db.conn.execute("SELECT removido_em FROM anuncios WHERE url='morto'").fetchone()[0]
+    db.close()

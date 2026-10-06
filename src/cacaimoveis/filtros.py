@@ -197,7 +197,8 @@ def montar_consulta(conn: sqlite3.Connection, f: Filtros, tem_comp: bool,
            " AS _nota FROM anuncios a ")
     if tem_comp:
         sql += "LEFT JOIN comparacoes c ON c.anuncio_url = a.url "
-    sql += "WHERE 1=1"
+    # anúncio que saiu do ar não está à venda: fica fora da listagem
+    sql += "WHERE a.removido_em IS NULL"
     params: list = []
 
     if f.bairro:

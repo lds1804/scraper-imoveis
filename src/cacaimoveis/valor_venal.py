@@ -377,12 +377,31 @@ def calcular(conn: sqlite3.Connection, refazer: bool = False,
         conn.execute("DELETE FROM valores_venais")
         conn.commit()
 
+    # o mapa rua -> CEP é indexado pela chave de rua do ITBI: se a regra da
+    # chave mudou (ver comparar_itbi.VERSAO_CHAVE_RUA), o mapa é refeito e
+    # os venais calculados com ele também
+    from cacaimoveis.comparar_itbi import VERSAO_CHAVE_RUA
+
+    if (_tem_tabela(conn, "itbi")
+            and migracoes.ler_meta(conn, "versao_chave_cep_da_rua", "1") != VERSAO_CHAVE_RUA
+            and migracoes.ler_meta(conn, "versao_chave_rua", "1") == VERSAO_CHAVE_RUA):
+        if verbose:
+            print("chave de rua mudou: refazendo o mapa rua -> CEP")
+        ajustar_ruas(conn, verbose=verbose)
+        conn.execute("DELETE FROM valores_venais")
+        migracoes.gravar_meta(conn, "versao_chave_cep_da_rua", VERSAO_CHAVE_RUA)
+        conn.commit()
+
     tem_rua = _tem_tabela(conn, "cep_da_rua")
     if not tem_rua and verbose:
         print("AVISO: tabela cep_da_rua ausente — rodar --ajustar-ruas "
               "melhora a precisão de quem não publica CEP")
 
-    ja = {r[0] for r in conn.execute("SELECT anuncio_url FROM valores_venais")}
+    # já calculado E com o mesmo preço: anúncio que mudou de preço é refeito
+    ja = {r[0] for r in conn.execute(
+        """SELECT v.anuncio_url FROM valores_venais v
+           JOIN anuncios a ON a.url = v.anuncio_url
+           WHERE ABS(COALESCE(v.preco, 0) - COALESCE(a.preco, 0)) < 1""")}
     anuncios = [a for a in conn.execute(
         """SELECT url, cep, rua_chave, preco FROM anuncios
            WHERE COALESCE(preco,0) > 0""") if a["url"] not in ja]

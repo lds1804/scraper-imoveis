@@ -57,6 +57,12 @@ try:
 except Exception:  # noqa: BLE001
     pass
 
+# Regra da chave de rua gravada em `rua_chave` (ver `preparar`). Medido em
+# 2026-10-06 (experimentos/medir_abreviacoes.py): a v2, que expande as
+# abreviações da prefeitura, acha a rua de +58 anúncios sem comparação e não
+# perde nenhum casamento por rua.
+VERSAO_CHAVE_RUA = "2"
+
 # tolerância de área: casa de 100 m² compara com 75–125 m²
 TOLERANCIA_AREA = 0.25
 # mínimo de transações para a comparação ser considerada confiável
@@ -221,6 +227,20 @@ def preparar(conn: sqlite3.Connection, verbose: bool = True) -> None:
             conn.execute(f"ALTER TABLE itbi ADD COLUMN {nova} TEXT")
     conn.commit()
 
+    # Versão da chave de rua. Mudou a regra (v2: abreviações da prefeitura
+    # expandidas, "R DR JOSE" = "Rua Doutor José")? Então as chaves gravadas
+    # estão velhas: zera para o bloco abaixo recalcular tudo, e as
+    # comparações feitas com a chave antiga são refeitas.
+    if migracoes.ler_meta(conn, "versao_chave_rua", "1") != VERSAO_CHAVE_RUA:
+        if verbose:
+            print(f"chave de rua mudou para a versão {VERSAO_CHAVE_RUA}: recalculando...")
+        conn.execute("UPDATE itbi SET rua_norm = NULL")
+        conn.execute("UPDATE anuncios SET rua_norm = NULL")
+        conn.execute("DELETE FROM comparacoes")
+        conn.execute("DELETE FROM comparacoes_detalhe")
+        migracoes.gravar_meta(conn, "versao_chave_rua", VERSAO_CHAVE_RUA)
+        conn.commit()
+
     # ---- ITBI ----
     pend = conn.execute(
         "SELECT COUNT(*) FROM itbi WHERE COALESCE(rua_norm,'')=''"
@@ -235,7 +255,7 @@ def preparar(conn: sqlite3.Connection, verbose: bool = True) -> None:
             "UPDATE itbi SET rua_norm=?, rua_chave=?, cep_norm=? WHERE rowid=?",
             [
                 (endereco.normalizar_logradouro(r[1]),
-                 endereco.chave_rua(r[1]),
+                 endereco.chave_canonica(r[1]),
                  endereco.normalizar_cep(r[2]),
                  r[0])
                 for r in linhas
@@ -259,7 +279,7 @@ def preparar(conn: sqlite3.Connection, verbose: bool = True) -> None:
             "UPDATE anuncios SET rua_norm=?, rua_chave=?, cep_norm=? WHERE url=?",
             [
                 (endereco.normalizar_logradouro(r[1]),
-                 endereco.chave_rua(r[1]),
+                 endereco.chave_canonica(r[1]),
                  endereco.normalizar_cep(r[2]),
                  r[0])
                 for r in linhas
@@ -626,7 +646,12 @@ def calcular(conn: sqlite3.Connection, reaj: indices.Reajustador,
         conn.execute("DELETE FROM comparacoes_detalhe")
         conn.commit()
 
-    ja = {r[0] for r in conn.execute("SELECT anuncio_url FROM comparacoes")}
+    # já comparado E com o mesmo preço: anúncio que mudou de preço é refeito
+    # (antes ficava com a razão calculada sobre o preço antigo para sempre)
+    ja = {r[0] for r in conn.execute(
+        """SELECT c.anuncio_url FROM comparacoes c
+           JOIN anuncios a ON a.url = c.anuncio_url
+           WHERE ABS(COALESCE(c.preco_pedido, 0) - COALESCE(a.preco, 0)) < 1""")}
     sql = """SELECT url, preco, area_construida, rua, rua_chave, cep_norm,
                     bairro, titulo, portal
              FROM anuncios
@@ -651,7 +676,11 @@ def calcular(conn: sqlite3.Connection, reaj: indices.Reajustador,
                 print(f"  [erro] {a['url'][-40:]}: {str(e)[:70]}")
             continue
 
+        # um anúncio refeito (mudou de preço) não pode acumular as vendas da
+        # comparação anterior, nem manter uma comparação que deixou de existir
+        conn.execute("DELETE FROM comparacoes_detalhe WHERE anuncio_url = ?", (a["url"],))
         if res is None:
+            conn.execute("DELETE FROM comparacoes WHERE anuncio_url = ?", (a["url"],))
             sem_base += 1
             continue
 
@@ -966,9 +995,10 @@ def main() -> int:
         return 0
 
     calcular(conn, reaj, refazer=args.refazer, limite=args.limite)
-    print()
-    relatorio(conn, so_abaixo=args.abaixo, limite=args.amostra,
-              bairro=args.bairro)
+    if args.amostra:
+        print()
+        relatorio(conn, so_abaixo=args.abaixo, limite=args.amostra,
+                  bairro=args.bairro)
     conn.close()
     return 0
 

@@ -407,9 +407,10 @@ class DB:
         Com `incluir_falhas=True`, reprocessa também os que falharam antes
         (foto_ok = 0), útil depois de corrigir algum problema.
         """
-        sql = "SELECT * FROM anuncios WHERE foto_ok IS NULL"
+        sql = "SELECT * FROM anuncios WHERE removido_em IS NULL AND foto_ok IS NULL"
         if incluir_falhas:
-            sql = "SELECT * FROM anuncios WHERE foto_ok IS NULL OR foto_ok = 0"
+            sql = ("SELECT * FROM anuncios WHERE removido_em IS NULL "
+                   "AND (foto_ok IS NULL OR foto_ok = 0)")
         sql += " ORDER BY rowid"
         return self.conn.execute(sql).fetchall()
 
@@ -600,3 +601,54 @@ def _slug(url: str) -> str:
     return f"{base}_{h}"
 
 
+
+
+def baixar_fotos_pendentes(db: DB, limite: int = 0, avisar=None) -> tuple[int, int]:
+    """Baixa as fotos dos anúncios que têm a lista de URLs mas nada em disco.
+
+    Por que existe: a coleta baixa as fotos no mesmo passo em que grava o
+    anúncio, e uma coleta interrompida deixa anúncios sem foto nenhuma.
+    Medido em 2026-10-06: 257 anúncios (237 do QuintoAndar) estavam assim — e
+    sem foto não há análise visual, então eles sumiam dos filtros de quintal.
+
+    Usa `requests` direto no CDN (sem navegador). Devolve (anúncios, fotos).
+
+    SAIU DO AR: medido em 2026-10-06, 225 desses anúncios (quase todos do
+    QuintoAndar) tinham sido retirados — a página do portal vira
+    "indisponível" e o CDN passa a responder 404 para as fotos. Quando a
+    primeira foto dá 404, o anúncio é marcado em `removido_em` (a listagem
+    deixa de mostrá-lo) em vez de ser tentado a cada rodada.
+    """
+    import requests
+
+    linhas = db.conn.execute(
+        """SELECT url, fotos_urls FROM anuncios a
+           WHERE COALESCE(fotos_urls, '') <> '' AND removido_em IS NULL
+             AND NOT EXISTS (SELECT 1 FROM fotos f WHERE f.anuncio_url = a.url)
+           ORDER BY rowid"""
+    ).fetchall()
+    if limite:
+        linhas = linhas[:limite]
+    n_anuncios = n_fotos = 0
+    for linha in linhas:
+        urls = [u for u in linha["fotos_urls"].split(",") if u.strip()]
+        try:
+            status = requests.head(urls[0], headers={"User-Agent": config.USER_AGENT},
+                                   timeout=config.TIMEOUT, allow_redirects=True).status_code
+        except requests.RequestException:
+            status = 0     # rede: tenta de novo na próxima rodada, sem concluir nada
+        if status in (404, 410):
+            db.conn.execute(
+                "UPDATE anuncios SET removido_em = datetime('now') WHERE url = ?",
+                (linha["url"],))
+            db.conn.commit()
+            if avisar:
+                avisar(linha["url"], -1)
+            continue
+        baixadas = baixar_fotos(Anuncio(url=linha["url"], fotos_urls=urls), None, db)
+        if baixadas:
+            n_anuncios += 1
+            n_fotos += baixadas
+        if avisar:
+            avisar(linha["url"], baixadas)
+    return n_anuncios, n_fotos

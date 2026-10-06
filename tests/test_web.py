@@ -285,3 +285,20 @@ def test_filtro_pelas_fotos_avisa_quantos_foram_analisados(cliente, banco):
 
 def test_sem_filtro_visual_nao_mostra_o_aviso(cliente):
     assert not contem("cobertura-visual", _texto(cliente.get("/?so_quintal=1")))
+
+
+def test_anuncio_que_saiu_do_ar_some_da_listagem(app, banco):
+    import os
+    import sqlite3
+
+    rw = sqlite3.connect(os.environ["CACA_DB"])
+    url = rw.execute("SELECT url FROM anuncios WHERE dup_grupo IS NULL LIMIT 1").fetchone()[0]
+    antes = _total(app.test_client().get("/"))
+    rw.execute("UPDATE anuncios SET removido_em = datetime('now') WHERE url = ?", (url,))
+    rw.commit()
+    try:
+        assert _total(app.test_client().get("/")) == antes - 1
+    finally:
+        rw.execute("UPDATE anuncios SET removido_em = NULL WHERE url = ?", (url,))
+        rw.commit()
+        rw.close()

@@ -213,11 +213,61 @@ def _m003_modelo_da_visao(conn: sqlite3.Connection) -> None:
     _garantir_tabela(conn, "anuncios", [("foto_modelo", "TEXT")])
 
 
+def _m004_meta(conn: sqlite3.Connection) -> None:
+    """Pares chave/valor sobre o estado dos dados (ex.: versão da chave de
+    rua usada no ITBI), para um recálculo saber quando é necessário."""
+    conn.execute("CREATE TABLE IF NOT EXISTS meta (chave TEXT PRIMARY KEY, valor TEXT)")
+
+
+def ler_meta(conn: sqlite3.Connection, chave: str, padrao: str = "") -> str:
+    linha = conn.execute("SELECT valor FROM meta WHERE chave = ?", (chave,)).fetchone()
+    return linha[0] if linha else padrao
+
+
+def gravar_meta(conn: sqlite3.Connection, chave: str, valor: str) -> None:
+    conn.execute("INSERT OR REPLACE INTO meta (chave, valor) VALUES (?, ?)", (chave, valor))
+
+
+_VENAL_IPTU = [
+    ("anuncio_url", "TEXT PRIMARY KEY"),
+    ("nivel", "TEXT"),               # 'lote' | 'rua' | 'cep'
+    ("sql", "TEXT"),                 # cadastro do imóvel, quando casou o lote
+    ("valor_venal", "REAL"),
+    ("venal_terreno", "REAL"),
+    ("venal_construcao", "REAL"),
+    ("v_m2_terreno", "REAL"),
+    ("v_m2_construcao", "REAL"),
+    ("fator_obsolescencia", "REAL"),
+    ("area_terreno", "REAL"),        # do cadastro (lote) ou do anúncio
+    ("area_construida", "REAL"),
+    ("ano_construcao", "INTEGER"),
+    ("padrao", "TEXT"),
+    ("esquina", "INTEGER"),          # 1 = fator de esquina não aplicado
+    ("n_lotes", "INTEGER"),
+    ("ano_base", "INTEGER"),         # ano do cadastro do IPTU usado
+    ("pct_do_preco", "REAL"),
+    ("calculado_em", "TEXT"),
+]
+
+
+def _m005_venal_iptu(conn: sqlite3.Connection) -> None:
+    """Valor venal oficial (fórmula da lei sobre o cadastro do IPTU)."""
+    _garantir_tabela(conn, "venal_iptu", _VENAL_IPTU)
+
+
+def _m006_removido(conn: sqlite3.Connection) -> None:
+    """Anúncio que saiu do ar (o portal tirou a página e as fotos)."""
+    _garantir_tabela(conn, "anuncios", [("removido_em", "TEXT")])
+
+
 # A posição na lista É o número da versão (1, 2, ...). Só acrescentar no fim.
 MIGRACOES: list[Callable[[sqlite3.Connection], None]] = [
     _m001_tabelas,
     _m002_indices,
     _m003_modelo_da_visao,
+    _m004_meta,
+    _m005_venal_iptu,
+    _m006_removido,
 ]
 
 

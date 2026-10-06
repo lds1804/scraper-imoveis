@@ -197,6 +197,51 @@ def chave_tolerante(rua: str) -> str:
     return " ".join(palavras)
 
 
+# Abreviações do cadastro FISCAL (ITBI e IPTU usam a mesma base TPCL) que o
+# `_ABREVIACOES_CADASTRO` não cobre. O anúncio escreve por extenso ("Rua
+# Doutor José Elias"), a prefeitura abrevia ("R DR JOSE ELIAS").
+_ABREVIACOES_FISCAIS = {
+    **_ABREVIACOES_CADASTRO,
+    "DR": "DOUTOR",
+    "DRA": "DOUTORA",
+    "S": "SAO",
+    "SRA": "SENHORA",
+    "N": "NOSSA",
+    "VISC": "VISCONDE",
+    "BAR": "BARAO",
+    "CONS": "CONSELHEIRO",
+    "MONS": "MONSENHOR",
+    "COM": "COMENDADOR",
+    "ALM": "ALMIRANTE",
+    "SGT": "SARGENTO",
+    "MAJ": "MAJOR",
+    "GOV": "GOVERNADOR",
+    "VER": "VEREADOR",
+    "EMB": "EMBAIXADOR",
+    "FR": "FREI",
+    "IR": "IRMA",
+    "MQ": "MARQUES",
+    "BR": "BRASIL",
+}
+
+
+def chave_canonica(rua: str) -> str:
+    """Chave com TODAS as abreviações expandidas, dos dois lados.
+
+    `chave_rua` deixa "DR JOSE ELIAS" (prefeitura) diferente de "DOUTOR JOSE
+    ELIAS" (anúncio). Aqui as duas formas viram a mesma. Usada para casar
+    anúncio com IPTU e ITBI.
+    """
+    t = normalizar_logradouro(rua)
+    if not t:
+        return ""
+    palavras = [_ABREVIACOES_FISCAIS.get(p, p) for p in t.split()]
+    if palavras and palavras[0] in ("R", "AV", "AL", "PC", "TRV", "EST", "ROD",
+                                    "VL", "LGO", "VD"):
+        palavras = palavras[1:]
+    return " ".join(palavras)
+
+
 def termo_de_busca(rua: str) -> str:
     """Palavra mais distintiva do logradouro, para consultar o WFS.
 
