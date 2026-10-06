@@ -103,6 +103,7 @@
 
         <label>Ordenar
           <select name="ordem">
+            <option value="encaixe"    {% if filtros.ordem=='encaixe' %}selected{% endif %}>Melhor encaixe</option>
             <option value="abaixo"    {% if filtros.ordem=='abaixo' %}selected{% endif %}>Mais abaixo do mercado</option>
             <option value="score"     {% if filtros.ordem=='score' %}selected{% endif %}>Melhor match</option>
             <option value="preco_asc" {% if filtros.ordem=='preco_asc' %}selected{% endif %}>Menor preço</option>
@@ -447,6 +448,26 @@
             {% if a.detalhe_ok and not a.area_terreno %}
               <div class="card-aviso" title="A página do anúncio não informa a área do terreno">
                 {{ ic.icone('bussola') }} terreno não informado
+              </div>
+            {% endif %}
+
+            {# Nota de encaixe: combina o desconto sobre o mercado com a
+               conservação vista nas fotos. Medido: as duas são independentes
+               (correlação +0,032), então a nota soma as duas em vez de trocar
+               uma pela outra. O selo só aparece quando há os DOIS dados —
+               sem análise de foto ou sem comparação de preço não há como
+               julgar, e mostrar "0,5" seria inventar precisão. #}
+            {% if a.encaixe is not none %}
+              <div class="encaixe" title="Encaixe: 50% desconto sobre o preço praticado + 50% conservação nas fotos{% if a.foto_problemas %} · desconto por problema visível{% endif %}">
+                <span class="encaixe-barra">
+                  <i style="width: {{ (a.encaixe * 100) | round(0) | int }}%"></i>
+                </span>
+                <span class="encaixe-texto">
+                  encaixe {{ (a.encaixe * 100) | round(0) | int }}
+                  {% if a.foto_problemas %}
+                    · <b class="encaixe-problema">{{ a.foto_problemas.split(',')[0] | replace('_', ' ') }}</b>
+                  {% endif %}
+                </span>
               </div>
             {% endif %}
 

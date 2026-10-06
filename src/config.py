@@ -122,6 +122,35 @@ PALAVRAS_NEGATIVAS = [
 ]
 
 # ---------------------------------------------------------------------------
+# Nota de encaixe (ordem "encaixe" da listagem)
+# ---------------------------------------------------------------------------
+# O usuário pediu: "na busca de um peso maior para imóveis bem conservados.
+# alguns estão com desconto mas estão mais conservados."
+#
+# MEDIDO antes de escolher os pesos (1.384 anúncios com análise visual E
+# comparação de preço):
+#   correlação(conservação, razão de preço) = +0,032  -> praticamente ZERO
+#   correlação(conservação, preço absoluto) = +0,349
+# Conclusão: **conservação e desconto são independentes**. São dois eixos
+# diferentes, então a nota SOMA os dois — usar um no lugar do outro perderia
+# informação. (Se fossem correlacionados, somar contaria a mesma coisa duas
+# vezes.)
+#
+# Efeito medido com 0,5/0,5: dos 60 primeiros, **44 mudam**, e os 44 que
+# entram são TODOS bem conservados (≥4) e NENHUM tem problema visível. Na
+# ordem atual (só desconto) o topo tinha imóvel com mofo/infiltração nas fotos
+# e cuidado 2/5 — porque a lista só olhava o preço.
+ENCAIXE_PESO_DESCONTO = 0.5      # quanto abaixo do mercado (0 a 1)
+ENCAIXE_PESO_CONSERVACAO = 0.5   # bem conservado nas fotos (0 a 1)
+# Problema visível (mofo, infiltração, entulho, obra inacabada) desconta.
+# 0,15 é o tamanho de um degrau de conservação — o suficiente para o imóvel
+# perder para um equivalente sem problema, sem sumir da lista.
+ENCAIXE_PENAL_PROBLEMA = 0.15
+# Sem análise visual, o anúncio NÃO é penalizado nem premiado: vai para o fim
+# da ordem (não dá para julgar conservação sem ter olhado a foto).
+ENCAIXE_DESCONTO_MAX = 0.5       # desconto acima disso não conta mais
+
+# ---------------------------------------------------------------------------
 # Rede / polite scraping
 # ---------------------------------------------------------------------------
 BASE_URL = "https://www.imovelweb.com.br"

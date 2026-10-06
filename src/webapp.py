@@ -351,6 +351,89 @@ def _venais(conn: sqlite3.Connection, urls: list[str]) -> dict[str, dict]:
     return {r["anuncio_url"]: dict(r) for r in linhas}
 
 
+def _nota_encaixe(a: dict, razao: float | None) -> float | None:
+    """Nota de encaixe: desconto + conservação, medidos nas fotos.
+
+    Por que somar em vez de escolher um: medido em 1.384 anúncios, a
+    correlação entre conservação e razão de preço é **+0,032** — ou seja,
+    ZERO. São dois eixos independentes: existe imóvel barato e malconservado,
+    e imóvel conservado e no preço. Usar um no lugar do outro jogaria
+    informação fora.
+
+    Devolve `None` quando não há como avaliar (sem comparação de preço OU sem
+    análise visual). Nesse caso o anúncio vai para o fim da ordem: não dá para
+    dizer que é um bom encaixe sem ter olhado.
+
+    Faixas (ver `config.ENCAIXE_*`):
+      desconto   -> 0 a 0,5 da nota; 50% abaixo do mercado já satura
+      conservação-> 0 a 0,5; `foto_cuidado` 1..5 vira 0..1
+      problema   -> desconta 0,15 (mofo, infiltração, entulho, obra inacabada)
+    """
+    if razao is None:
+        return None
+    cuidado = a.get("foto_cuidado")
+    if cuidado is None:
+        return None
+
+    # desconto: 0,5 de nota para quem está 50%+ abaixo; acima disso não conta
+    # (razão 0,3 costuma ser erro de dado ou imóvel em péssimo estado, não
+    # oportunidade — e já está marcado como divergente na conferência de área)
+    desc = max(0.0, min(config.ENCAIXE_DESCONTO_MAX, 1.0 - razao))
+    # conservação: 1 -> 0,00 · 2 -> 0,25 · 3 -> 0,50 · 4 -> 0,75 · 5 -> 1,00
+    cons = max(0.0, min(1.0, (float(cuidado) - 1) / 4.0))
+
+    nota = (config.ENCAIXE_PESO_DESCONTO * (desc / config.ENCAIXE_DESCONTO_MAX)
+            + config.ENCAIXE_PESO_CONSERVACAO * cons)
+    if a.get("foto_problemas"):
+        nota -= config.ENCAIXE_PENAL_PROBLEMA
+    return round(max(0.0, nota), 4)
+
+
+def _sem_acento(s: str) -> str:
+    """Minúsculas e sem acento, para comparar nomes de bairro entre si.
+
+    Existe porque o `LOWER()` do SQLite não baixa letra acentuada maiúscula —
+    comparar acento no banco dá resultado errado. Aqui a comparação é em
+    Python, que trata 'Á' -> 'á' corretamente.
+    """
+    import unicodedata
+
+    s = unicodedata.normalize("NFKD", str(s).strip().lower())
+    return "".join(c for c in s if not unicodedata.combining(c))
+
+
+def _resolver_bairros(valores: list[str]) -> list[str]:
+    """Converte o que veio na URL no nome EXATO guardado na coluna `bairro`.
+
+    Aceita três formas, porque as três aparecem na prática:
+      - o nome como está no banco  ("Vila Mangalot", "Água Branca")
+      - o slug do config           ("vila-mangalot", "agua-branca")
+      - variação de acento/caixa   ("agua branca", "VILA MANGALOT")
+
+    Devolve só o que EXISTE na base: bairro configurado sem anúncio (Jaguara,
+    Parque da Lapa, Vila Ipê) não entra no `IN`, senão o filtro não traria
+    nada e pareceria quebrado.
+    """
+    conn = _conn()
+    try:
+        existentes = [r[0] for r in conn.execute(
+            "SELECT DISTINCT bairro FROM anuncios WHERE COALESCE(bairro,'')<>''")]
+    finally:
+        conn.close()
+
+    # índice: "agua branca" -> "Água Branca"
+    por_chave = {_sem_acento(b): b for b in existentes}
+    saida: list[str] = []
+    for v in valores:
+        # tenta como veio, depois como slug (vira espaço), depois sem acento
+        for candidato in (v, str(v).replace("-", " "), _sem_acento(v)):
+            achado = por_chave.get(_sem_acento(candidato))
+            if achado and achado not in saida:
+                saida.append(achado)
+                break
+    return saida
+
+
 def _grau_area(dif: float | None) -> str:
     """Mesma faixa usada em `referencia_geosampa._grau()`, para a interface.
 
@@ -494,7 +577,12 @@ def index():
     # apareceu 25 vezes). Sem isso a lista repete o mesmo imóvel e o usuário
     # perde tempo relendo. Marcado por padrão; `?todas=1` desliga.
     todas = request.args.get("todas") == "1"
-    ordem = request.args.get("ordem", "abaixo")
+    # ORDEM PADRÃO: "encaixe" — desconto + conservação. O usuário pediu peso
+    # para imóvel bem conservado, e medido: na ordem antiga (só desconto) o
+    # topo da lista tinha imóvel com mofo/infiltração nas fotos e cuidado 2/5.
+    # Trocar o padrão é o que faz o pedido valer sem o usuário ter de descobrir
+    # a opção nova no seletor.
+    ordem = request.args.get("ordem", "encaixe")
 
     # "abaixo da mediana do ITBI": razão = preço pedido / mediana das
     # transações comparáveis, então < 1 = abaixo do preço praticado.
@@ -517,12 +605,32 @@ def index():
     params: list = []
 
     if bairros_sel:
-        # a coluna guarda o NOME real ("Vila Mangalot"); aceita também o slug
-        # na URL ("vila-mangalot") convertendo antes de comparar.
-        # Uso `IN` porque agora são vários bairros de uma vez.
-        nomes = [_bairro(b).lower() for b in bairros_sel]
-        sql += f" AND LOWER(a.bairro) IN ({','.join('?' * len(nomes))})"
-        params.extend(nomes)
+        # Resolve o que veio na URL para o NOME EXATO guardado na coluna.
+        #
+        # ARMADILHA CORRIGIDA (2026-10-06): antes isto era
+        #     AND LOWER(a.bairro) IN (lower(nome), ...)
+        # e o `LOWER()` do SQLite **não baixa letra acentuada maiúscula**:
+        # `LOWER('Água Branca')` devolve `'Água branca'` (o "Á" fica), então
+        # comparar com `'água branca'` (vindo do Python, que baixa) NUNCA
+        # casa. Medido: "Água Branca" (44 anúncios) e "Jardim Íris" (5)
+        # devolviam ZERO ao marcar no filtro, e o total dos outros bairros
+        # vinha menor que o real por causa dos acentuados.
+        #
+        # A correção não usa `LOWER` do banco: traz a lista distinta de
+        # bairros (são 18), casa em Python — que baixa acento direito — e
+        # filtra por igualdade exata.
+        nomes = _resolver_bairros(bairros_sel)
+        if nomes:
+            sql += f" AND a.bairro IN ({','.join('?' * len(nomes))})"
+            params.extend(nomes)
+        else:
+            # Pediram um bairro que NÃO existe na base (nome errado, bairro
+            # configurado sem anúncio, ou typo). Sem isto o filtro sumia em
+            # silêncio e a lista vinha COMPLETA — o usuário marcava "Água
+            # Branca" com um erro de acento e via 2.938 anúncios, achando que
+            # o filtro não funcionava. Devolver zero é a resposta honesta:
+            # nada casa com o que foi pedido.
+            sql += " AND 1=0"
     if preco_max:
         sql += " AND a.preco IS NOT NULL AND a.preco <= ?"
         params.append(float(preco_max))
@@ -584,6 +692,10 @@ def index():
             "preco_desc": "a.preco DESC",
             "terreno": "a.area_terreno DESC",
             "recentes": "a.rowid DESC",
+            # "encaixe" ordena em PYTHON (ver `_ordenar_por_encaixe`): a nota
+            # soma desconto e conservação, e das duas a conservação não é
+            # coluna ordenável de forma útil em SQL (precisa normalizar 1..5
+            # e descontar problema visível).
         }.get(ordem, "c.razao IS NULL, c.razao ASC, a.score_quintal DESC, a.preco ASC")
     else:
         ordem_sql = {
@@ -596,7 +708,15 @@ def index():
     # Desempate final: quem é principal do seu grupo vem antes. Dois anúncios
     # com a MESMA razão (ou o mesmo preço) empatariam, e sem isto a posição
     # ficaria arbitrária. Vale nos dois ramos acima, por isso entra depois.
-    sql += f" ORDER BY {ordem_sql}, a.dup_melhor DESC"
+    #
+    # NA ORDEM "encaixe" o SQL não ordena: a nota combina desconto e
+    # conservação das fotos, e sem análise visual o anúncio vai para o fim.
+    # Ordenar no banco exigiria replicar a fórmula em SQL; em Python fica
+    # legível e testável (a página tem 60 itens, então não há custo).
+    if ordem == "encaixe":
+        sql += " ORDER BY a.rowid"
+    else:
+        sql += f" ORDER BY {ordem_sql}, a.dup_melhor DESC"
 
     # -----------------------------------------------------------------------
     # PAGINAÇÃO. A listagem sem filtro chega a 4.793 anúncios, e renderizar
@@ -614,9 +734,33 @@ def index():
     n_paginas = max(1, (total_filtrado + POR_PAGINA - 1) // POR_PAGINA)
     pagina = min(pagina, n_paginas)
 
-    sql_pag = sql + " LIMIT ? OFFSET ?"
-    anuncios = conn.execute(
-        sql_pag, [*params, POR_PAGINA, (pagina - 1) * POR_PAGINA]).fetchall()
+    # O sql sem ORDER BY útil: cada ordem põe a sua no fim (ver acima).
+    if ordem == "encaixe":
+        # A nota de encaixe combina desconto (da comparação de preço) e
+        # conservação (da análise das fotos). Ela NÃO pode ser aplicada só à
+        # página: ordenar as 60 linhas que o LIMIT trouxe daria o top-60 de
+        # uma amostra arbitrária, não os 60 melhores do filtro. Por isso este
+        # ramo busca o conjunto filtrado inteiro, ordena em Python e só então
+        # corta a página.
+        #
+        # A razão vem no próprio SELECT (`_razao`) — pedir numa segunda
+        # consulta seria uma ida ao banco a mais para o mesmo dado.
+        sql_nota = sql.replace("SELECT a.*", "SELECT a.*, c.razao AS _razao", 1)
+        todas = conn.execute(sql_nota, params).fetchall()
+
+        def _chave(a):
+            nota = _nota_encaixe(dict(a), a["_razao"] if tem_comp else None)
+            # sem nota (sem preço comparável ou sem foto analisada) vai para o
+            # fim; o desempate é o menor preço, que era o critério antigo
+            return (nota is None, -(nota or 0), a["preco"] or 9e12)
+
+        todas.sort(key=_chave)
+        inicio = (pagina - 1) * POR_PAGINA
+        anuncios = todas[inicio:inicio + POR_PAGINA]
+    else:
+        anuncios = conn.execute(
+            sql + " LIMIT ? OFFSET ?",
+            [*params, POR_PAGINA, (pagina - 1) * POR_PAGINA]).fetchall()
 
     bairros = [
         r["bairro"]
@@ -641,6 +785,10 @@ def index():
         d["area_of"] = areas.get(a["url"])
         d["area_grau"] = _grau_da_area(areas.get(a["url"]))
         d["venal"] = venais.get(a["url"])
+        # nota de encaixe, para o selo no card (a ordem "encaixe" usa a chave
+        # de ordenação lá em cima; aqui é só para exibir)
+        d["encaixe"] = _nota_encaixe(
+            dict(a), (d["comp"] or {}).get("razao"))
         # "n_copias" é quantas ofertas do mesmo imóvel existem (1 = única).
         # O aviso no card só aparece quando há mais de uma.
         grupo = a["dup_grupo"]

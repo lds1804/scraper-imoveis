@@ -621,6 +621,32 @@ a { color: inherit; }
 }
 .ofertas-link:hover { text-decoration: underline; }
 
+/* ---------- nota de encaixe (desconto + conservação) ---------- */
+/* Combina duas coisas que foram MEDIDAS como independentes (correlação
+   +0,032): quanto abaixo do mercado e quão bem conservado nas fotos. Por isso
+   aparece como uma barra com número — dá para comparar cards de relance sem
+   somar duas notas de cabeça. */
+.encaixe {
+  display: flex; align-items: center; gap: 7px;
+  margin-top: 5px;
+}
+.encaixe-barra {
+  flex: 1; height: 5px; min-width: 40px;
+  background: var(--linha);
+  border-radius: var(--r-full);
+  overflow: hidden;
+}
+.encaixe-barra i {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--verde) 100%);
+  border-radius: var(--r-full);
+}
+.encaixe-texto {
+  font-size: .7rem; font-weight: 600; color: var(--texto-2);
+  white-space: nowrap;
+}
+.encaixe-problema { color: var(--alerta); }
+
 /* ---------- análise visual das fotos (IA) ---------- */
 /* Bloco que separa o que foi LIDO DO TEXTO do que foi VISTO NA FOTO.
    A borda esquerda tracejada lembra que é inferência, não dado do anúncio. */
