@@ -223,3 +223,55 @@ def test_escolhe_a_versao_mais_recente(tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
     assert "2.1.9" in visao.achar_claude()
+
+
+# ---------------------------------------------------------------------------
+# Cópias do mesmo imóvel herdam a análise (sem chamar o modelo)
+# ---------------------------------------------------------------------------
+def _db_com_grupo(tmp_path):
+    from cacaimoveis import storage
+
+    db = storage.DB(str(tmp_path / "h.db"))
+    ins = ("INSERT INTO anuncios (url, portal, dup_grupo, dup_melhor, foto_ok, foto_cuidado, "
+           "foto_resumo, foto_piso_quintal, foto_modelo, foto_analisada_em) "
+           "VALUES (?,?,?,?,?,?,?,?,?,?)")
+    # grupo 1: um analisado (o principal) e duas cópias novas; grupo 2: ninguém analisado
+    db.conn.execute(ins, ("u1", "zap", 1, 1, 1, 4, "Casa com quintal", "grama", "claude:sonnet", "2026-10-01"))
+    db.conn.execute(ins, ("u2", "olx", 1, 0, None, None, None, None, None, None))
+    db.conn.execute(ins, ("u3", "quintoandar", 1, 0, None, None, None, None, None, None))
+    db.conn.execute(ins, ("u4", "zap", 2, 1, None, None, None, None, None, None))
+    db.conn.execute(ins, ("u5", "zap", None, None, None, None, None, None, None, None))
+    db.conn.commit()
+    return db
+
+
+def test_copia_herda_a_analise_do_grupo(tmp_path):
+    db = _db_com_grupo(tmp_path)
+    assert db.herdar_analise_visual() == 2
+    for u in ("u2", "u3"):
+        r = db.conn.execute("SELECT * FROM anuncios WHERE url = ?", (u,)).fetchone()
+        assert r["foto_ok"] == 1 and r["foto_cuidado"] == 4
+        assert r["foto_resumo"] == "Casa com quintal" and r["foto_piso_quintal"] == "grama"
+        assert r["foto_modelo"] == "claude:sonnet"
+    # quem não tem análise no grupo (ou nem tem grupo) continua pendente
+    pendentes = {r["url"] for r in db.sem_analise_visual()}
+    assert pendentes == {"u4", "u5"}
+    db.close()
+
+
+def test_herdar_nao_sobrescreve_e_e_idempotente(tmp_path):
+    db = _db_com_grupo(tmp_path)
+    db.conn.execute("UPDATE anuncios SET foto_ok = 1, foto_cuidado = 2 WHERE url = 'u2'")
+    db.conn.commit()
+    assert db.herdar_analise_visual() == 1            # só u3
+    assert db.conn.execute("SELECT foto_cuidado FROM anuncios WHERE url='u2'").fetchone()[0] == 2
+    assert db.herdar_analise_visual() == 0
+    db.close()
+
+
+def test_anuncio_removido_nao_serve_de_fonte(tmp_path):
+    db = _db_com_grupo(tmp_path)
+    db.conn.execute("UPDATE anuncios SET removido_em = 'x' WHERE url = 'u1'")
+    db.conn.commit()
+    assert db.herdar_analise_visual() == 0
+    db.close()

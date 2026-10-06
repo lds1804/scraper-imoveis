@@ -169,6 +169,17 @@ def main() -> int:
     args = parser.parse_args()
     deepseek = args.provedor == "deepseek"
 
+    # Cópias de imóveis já analisados herdam o resultado: custa zero e não
+    # depende de login nem de chave, então vem ANTES de checar o provedor.
+    if not args.sem_agrupar and not args.refazer:
+        db_herda = DB()
+        try:
+            herdadas = db_herda.herdar_analise_visual()
+        finally:
+            db_herda.close()
+        if herdadas:
+            print(f"Herdaram a análise de uma cópia já analisada: {herdadas} anúncios (sem chamada)")
+
     falta = provedor_pronto(args.provedor)
     if falta:
         print(falta)

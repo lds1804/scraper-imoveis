@@ -411,6 +411,51 @@ class DB:
             )
         ]
 
+    # colunas que a análise das fotos preenche (copiadas entre cópias do imóvel)
+    _COLUNAS_VISAO = (
+        "foto_ok", "foto_tem_quintal", "foto_piso_quintal", "foto_quintal_terra",
+        "foto_cimentado", "foto_arvores", "foto_area_externa", "foto_vegetacao",
+        "foto_iluminacao", "foto_arejamento", "foto_cuidado", "foto_janelas_grandes",
+        "foto_reformado", "foto_planta_baixa", "foto_fachada", "foto_piso",
+        "foto_comodos", "foto_extras", "foto_problemas", "foto_resumo",
+        "foto_confianca", "foto_analisada_em", "foto_modelo",
+    )
+
+    def herdar_analise_visual(self) -> int:
+        """Copia a análise das fotos para as cópias ainda não analisadas.
+
+        O grupo de duplicatas junta anúncios do MESMO imóvel (as fotos batem e
+        a trava de endereço aprovou). Se um deles já foi analisado, os outros
+        herdam o resultado sem chamar o modelo. Antes isso só acontecia
+        quando o anúncio principal do grupo estava no mesmo lote; um anúncio
+        novo cujo principal já tinha sido analisado virava uma chamada nova
+        (medido em 2026-10-06: 487 de 1.246 pendentes eram assim).
+
+        Devolve quantos anúncios herdaram. Não mexe em quem já tem análise.
+        """
+        cols = ", ".join(self._COLUNAS_VISAO)
+        fontes: dict[int, sqlite3.Row] = {}
+        for r in self.conn.execute(
+            f"""SELECT dup_grupo, {cols} FROM anuncios
+                WHERE dup_grupo IS NOT NULL AND foto_ok = 1 AND removido_em IS NULL
+                ORDER BY dup_melhor DESC, foto_analisada_em DESC"""):
+            fontes.setdefault(r["dup_grupo"], r)       # o 1º de cada grupo: o melhor
+        herdaram = 0
+        pendentes = self.conn.execute(
+            """SELECT url, dup_grupo FROM anuncios
+               WHERE dup_grupo IS NOT NULL AND foto_ok IS NULL AND removido_em IS NULL""").fetchall()
+        for p in pendentes:
+            fonte = fontes.get(p["dup_grupo"])
+            if fonte is None:
+                continue
+            self.conn.execute(
+                f"UPDATE anuncios SET {', '.join(c + ' = ?' for c in self._COLUNAS_VISAO)} "
+                "WHERE url = ?",
+                [fonte[c] for c in self._COLUNAS_VISAO] + [p["url"]])
+            herdaram += 1
+        self.conn.commit()
+        return herdaram
+
     def sem_analise_visual(self, incluir_falhas: bool = False) -> list:
         """Anúncios que ainda não tiveram as fotos analisadas.
 
