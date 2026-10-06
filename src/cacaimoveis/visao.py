@@ -309,11 +309,21 @@ def achar_claude() -> str | None:
     no_path = shutil.which("claude")
     if no_path:
         return no_path
-    appdata = os.environ.get("APPDATA")
-    if appdata:
-        achados = glob.glob(os.path.join(appdata, "Claude", "claude-code", "*", "*", "claude.exe"))
-        if achados:
-            return max(achados, key=os.path.getmtime)
+    # O app desktop é empacotado (MSIX): DENTRO dele `%APPDATA%\Claude` é uma
+    # pasta virtualizada e um terminal comum NÃO a enxerga; o arquivo de
+    # verdade fica em `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming`.
+    # Procura nos dois: sem o segundo, rodar `caca-visao` num PowerShell normal
+    # dizia "Claude Code não encontrado" (foi o que aconteceu).
+    raizes = []
+    if os.environ.get("APPDATA"):
+        raizes.append(os.path.join(os.environ["APPDATA"], "Claude", "claude-code"))
+    if os.environ.get("LOCALAPPDATA"):
+        raizes += glob.glob(os.path.join(
+            os.environ["LOCALAPPDATA"], "Packages", "Claude_*",
+            "LocalCache", "Roaming", "Claude", "claude-code"))
+    achados = [c for r in raizes for c in glob.glob(os.path.join(r, "*", "*", "claude.exe"))]
+    if achados:
+        return max(achados, key=os.path.getmtime)
     return None
 
 

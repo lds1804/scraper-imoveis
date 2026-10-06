@@ -194,3 +194,32 @@ def test_caca_login_avisa_se_o_login_nao_pegou(monkeypatch):
     monkeypatch.setattr(login.subprocess, "call", lambda *a, **k: 0)
     monkeypatch.setattr("builtins.input", lambda *a: "")
     assert login.main() == 1
+
+
+def test_acha_o_claude_na_pasta_real_do_app_empacotado(tmp_path, monkeypatch):
+    """Num terminal comum %APPDATA%\Claude não existe (é virtualizada para o
+    app); o claude.exe de verdade está em LOCALAPPDATA\Packages\Claude_*."""
+    exe = (tmp_path / "Local" / "Packages" / "Claude_abc123" / "LocalCache" / "Roaming"
+           / "Claude" / "claude-code" / "2.1.288" / "hash" / "claude.exe")
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"")
+    monkeypatch.setattr(config, "VISAO_CLAUDE_BIN", "")
+    monkeypatch.setattr(visao.shutil, "which", lambda n: None)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))           # sem nada dentro
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
+    assert visao.achar_claude() == str(exe)
+
+
+def test_escolhe_a_versao_mais_recente(tmp_path, monkeypatch):
+    base = tmp_path / "Roaming" / "Claude" / "claude-code"
+    for versao, mtime in (("2.1.1", 100), ("2.1.9", 900)):
+        exe = base / versao / "h" / "claude.exe"
+        exe.parent.mkdir(parents=True)
+        exe.write_bytes(b"")
+        import os
+        os.utime(exe, (mtime, mtime))
+    monkeypatch.setattr(config, "VISAO_CLAUDE_BIN", "")
+    monkeypatch.setattr(visao.shutil, "which", lambda n: None)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
+    assert "2.1.9" in visao.achar_claude()
