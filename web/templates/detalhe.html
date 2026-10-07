@@ -26,6 +26,7 @@
   </header>
 
   <main class="detalhe">
+    <div class="detalhe-topo">
     <section class="carrossel" id="carrossel">
       {% if a.fotos %}
         <div class="carrossel-palco">
@@ -71,7 +72,7 @@
       {% endif %}
     </section>
 
-    <aside class="painel">
+    <aside class="painel resumo">
       <div class="painel-cabeca">
         <div class="preco">{{ a.preco | moeda }}
           {% if a.novo %}<span class="selo-novo selo-novo-inline" title="Apareceu nos últimos dias">Novo</span>{% endif %}
@@ -110,301 +111,22 @@
             <li class="destaque">{{ ic.icone('terreno') }} {{ a.area_terreno | m2 }} de terreno</li>
           {% endif %}
         </ul>
-
-        {% if a.area_of and a.area_of.dif_pct is not none %}
-          {# Cadastro imobiliário fiscal (GeoSampa). A leitura é de conferência:
-             divergência pode ser cadastro desatualizado, não propaganda falsa.
-
-             O anúncio publica UM número de metragem e o cadastro tem DOIS
-             (terreno e construção). Medido nos 929 lotes exatos: em 12% dos
-             casos o número do anúncio é o TERRENO, e em 16% terreno e
-             construção são iguais. Comparar sempre com a construção acusava
-             divergência em ~43% dos casos que pode não existir — por isso o
-             cabeçalho diz primeiro QUAL área o anúncio publicou. #}
-          <div class="area-off-bloco {{ a.area_grau }}">
-            <div class="area-off-cabeca">
-              {{ ic.icone('casa', 'ico') }}
-              <div>
-                <b>
-                  {% if a.area_of.area_casa == 'terreno' %}
-                    o anúncio publica a área do TERRENO
-                  {% elif a.area_of.area_casa == 'ambos' %}
-                    metragem compatível com o cadastro
-                  {% elif a.area_grau == 'compativel' %}
-                    metragem compatível com o cadastro
-                  {% else %}
-                    metragem {{ '%+.0f' | format(a.area_of.dif_pct) }}% vs cadastro
-                  {% endif %}
-                </b>
-                <span>
-                  {% if a.area_of.nivel == 'lote' %}
-                    lote exato no cadastro da prefeitura
-                  {% elif a.area_of.nivel == 'rua' %}
-                    mediana de {{ a.area_of.n_lotes }} lotes desta rua
-                  {% else %}
-                    mediana de {{ a.area_of.n_lotes }} lotes do bairro
-                  {% endif %}
-                </span>
-              </div>
-            </div>
-
-            <table class="area-off-tabela">
-              <tr>
-                <th></th>
-                <th>área construída</th>
-                <th>terreno</th>
-              </tr>
-              <tr>
-                <td>anúncio</td>
-                <td>{{ a.area_of.area_anuncio | m2 }}</td>
-                <td>{% if a.area_of.area_terreno_anuncio %}{{ a.area_of.area_terreno_anuncio | m2 }}{% else %}não informado{% endif %}</td>
-              </tr>
-              <tr>
-                <td>cadastro</td>
-                <td>{{ a.area_of.area_oficial | m2 }}</td>
-                <td>{% if a.area_of.area_terreno_oficial %}{{ a.area_of.area_terreno_oficial | m2 }}{% else %}—{% endif %}</td>
-              </tr>
-            </table>
-
-            {% if a.area_of.area_casa == 'terreno' %}
-              <p class="bloco-nota">
-                O anúncio informou <b>uma</b> metragem ({{ a.area_of.area_anuncio | m2 }})
-                e ela corresponde ao <b>terreno</b> do cadastro
-                ({{ a.area_of.area_terreno_oficial | m2 }}), não à construção
-                ({{ a.area_of.area_oficial | m2 }}). A maioria dos portais
-                publica só esse campo — não é erro do anúncio, é o dado que
-                ele tem. A {{ a.area_of.area_oficial | m2 }} é o que a
-                prefeitura registra como construído.
-              </p>
-            {% elif a.area_grau != 'compativel' %}
-              <p class="bloco-nota">
-                <b>Confira isto.</b> Divergência de metragem <b>não</b> prova que o
-                anúncio está errado: é comum construir ou reformar e não atualizar
-                o cadastro — a prefeitura só toma conhecimento na vistoria ou na
-                venda. Use como motivo para pedir a documentação da área
-                (projeto aprovado, IPTU atualizado) antes de decidir.
-              </p>
-            {% endif %}
-            <p class="bloco-nota">
-              Fonte: cadastro imobiliário fiscal de São Paulo (GeoSampa).
-              O valor venal <b>não</b> é divulgado pela prefeitura, por isso a
-              comparação usa área.
-            </p>
-          </div>
-        {% endif %}
-      </div>
-
-      {% if a.descricao %}
-        <div class="bloco">
-          <h2 class="bloco-titulo">{{ ic.icone('megafone') }} Descrição</h2>
-          <div class="descricao">{{ a.descricao }}</div>
         </div>
-      {% endif %}
 
-      {% if a.grupo_n > 1 %}
-        {# A MESMA casa anunciada por várias imobiliárias. Medido: um sobrado
-           de 108 m² em Vila Bonilha apareceu 25 vezes (4 no ZAP + 21 na OLX),
-           sempre a R$ 470.000.
+      <a class="botao" href="{{ a.url }}" target="_blank" rel="noopener">
+        {{ ic.icone('expandir') }} Ver no {{ {'zap': 'ZAP Imóveis', 'vivareal': 'Viva Real', 'olx': 'OLX', 'quintoandar': 'QuintoAndar'}.get(a.portal, 'Imovelweb') }}
+      </a>
+    </aside>
+    </div>
 
-           Fica AQUI (na página do anúncio) e não expandindo a listagem: no
-           card, "+24 anúncios deste imóvel" viraria 25 cards idênticos. Numa
-           tabela curta, com o preço de cada portal, a informação aparece de
-           uma vez e dá para comparar.
-
-           A ordem é do mais barato para o mais caro — é o que decide a
-           compra. Alguns grupos têm quase todos no mesmo preço (medido: 24
-           de 25 no maior), então a frase do topo só fala em diferença de
-           preço quando ela realmente existe. #}
-        <div class="bloco" id="ofertas">
-          <h2 class="bloco-titulo">
-            {{ ic.icone('copias') }} Outras ofertas deste imóvel
-            <span class="bloco-contagem">{{ a.grupo_n }} no total</span>
-          </h2>
-
-          {% if a.grupo_menor_preco and a.grupo_maior_preco
-                and a.grupo_maior_preco > a.grupo_menor_preco %}
-            <p class="bloco-nota">
-              Os preços deste imóvel vão de
-              <b>{{ a.grupo_menor_preco | moeda }}</b> a
-              <b>{{ a.grupo_maior_preco | moeda }}</b>
-              ({{ ((a.grupo_maior_preco / a.grupo_menor_preco - 1) * 100)
-                   | round(0) | int }}% de diferença).
-              As imobiliárias anunciam a mesma casa por valores diferentes —
-              é margem para negociar.
-            </p>
-          {% else %}
-            <p class="bloco-nota">
-              Todas as ofertas deste imóvel estão pelo <b>mesmo preço</b>
-              ({{ a.grupo_menor_preco | moeda }}). O que muda é a imobiliária
-              — o valor está firme.
-            </p>
-          {% endif %}
-
-          <table class="ofertas-tabela">
-            <thead>
-              <tr>
-                <th>preço</th>
-                <th>portal</th>
-                <th>constr.</th>
-                <th>quartos</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {# O selo "mais barata" aparece UMA vez só. Medido no maior grupo:
-                 24 dos 25 anúncios têm exatamente o mesmo preço, então marcar
-                 cada um deles como "mais barata" seria 24 selos idênticos e
-                 nenhuma informação. A tabela já está ordenada do menor para o
-                 maior preço, então o primeiro é a referência. #}
-              {% set ja_marcou = namespace(menor=false) %}
-              {% if a.preco and a.grupo_menor_preco
-                    and a.preco == a.grupo_menor_preco %}
-                {% set ja_marcou.menor = true %}
-              {% endif %}
-
-              {# a linha do anúncio que está aberto, para o usuário ver onde
-                 ele se posiciona na faixa #}
-              <tr class="ofertas-atual">
-                <td>
-                  <b>{{ a.preco | moeda }}</b>
-                  {% if a.grupo_menor_preco and a.preco
-                        and a.preco > a.grupo_menor_preco %}
-                    <span class="ofertas-acima">
-                      +{{ ((a.preco / a.grupo_menor_preco - 1) * 100)
-                          | round(0) | int }}%
-                    </span>
-                  {% elif ja_marcou.menor %}
-                    <span class="ofertas-menor">mais barata</span>
-                  {% endif %}
-                </td>
-                <td>{{ a.portal }}</td>
-                <td>{{ a.area_construida | m2 }}</td>
-                <td>{{ a.quartos or '—' }}</td>
-                <td class="ofertas-voce">este anúncio</td>
-              </tr>
-              {% for c in a.copias %}
-                <tr>
-                  <td>
-                    {{ c.preco | moeda }}
-                    {% if c.preco and a.grupo_menor_preco
-                          and c.preco == a.grupo_menor_preco
-                          and not ja_marcou.menor %}
-                      {% set ja_marcou.menor = true %}
-                      <span class="ofertas-menor">mais barata</span>
-                    {% endif %}
-                  </td>
-                  <td>{{ c.portal }}</td>
-                  <td>{{ c.area_construida | m2 }}</td>
-                  <td>{{ c.quartos or '—' }}</td>
-                  <td>
-                    <a class="ofertas-link" href="{{ url_for('detalhe', anuncio_url=c.url) }}"
-                       title="{{ c.titulo or 'ver este anúncio' }}">
-                      ver anúncio
-                    </a>
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-
-          <p class="bloco-nota">
-            São cópias do mesmo imóvel publicadas por imobiliárias diferentes,
-            agrupadas pela semelhança das fotos. Confira a documentação antes
-            de fechar: o mesmo corretor pode ter mais de um anúncio ativo.
-          </p>
-        </div>
-      {% endif %}
-
-      {% if a.foto_ok %}
-        <div class="bloco">
-          <h2 class="bloco-titulo">{{ ic.icone('olho') }} O que as fotos mostram</h2>
-          <p class="bloco-nota">
-            Leitura automática das fotos, independente do texto do anúncio.
-            Serve para conferir o que o anúncio não diz.
-          </p>
-
-          <ul class="specs grande">
-            {% if a.foto_tem_quintal == 1 %}
-              <li class="destaque">
-                {{ ic.icone('arvore') }} quintal
-                {% if a.foto_piso_quintal in ('terra', 'grama', 'cimento', 'misto') %}
-                  · {{ a.foto_piso_quintal }}
-                {% endif %}
-              </li>
-            {% elif a.foto_tem_quintal == 0 %}
-              <li class="recusa">{{ ic.icone('fechar') }} sem quintal visível</li>
-            {% endif %}
-            {% if a.foto_arvores == 1 %}
-              <li class="destaque">{{ ic.icone('arvore') }} árvores</li>
-            {% endif %}
-            {% if a.foto_area_externa == 1 %}
-              <li>{{ ic.icone('terreno') }} área externa</li>
-            {% endif %}
-            {% if a.foto_janelas_grandes == 1 %}
-              <li>{{ ic.icone('expandir') }} janelas grandes</li>
-            {% endif %}
-            {% if a.foto_reformado == 1 %}
-              <li class="confirma">{{ ic.icone('check') }} parece reformado</li>
-            {% endif %}
-            {% if a.foto_fachada in ('terrea', 'sobrado') %}
-              <li>{{ ic.icone('casa') }} {{ a.foto_fachada }}</li>
-            {% endif %}
-            {% if a.foto_planta_baixa == 1 %}
-              <li>{{ ic.icone('area') }} tem planta baixa</li>
-            {% endif %}
-          </ul>
-
-          {% if a.foto_cuidado is not none or a.foto_arejamento is not none or a.foto_iluminacao is not none or a.foto_vegetacao is not none %}
-            <div class="notas-visao">
-              {% for rot in [('cuidado', a.foto_cuidado, 'conservação geral'), ('arejamento', a.foto_arejamento, 'janelas e ventilação'), ('luz natural', a.foto_iluminacao, 'luz natural nos ambientes'), ('vegetação', a.foto_vegetacao, 'presença de vegetação')] %}
-                {% if rot[1] is not none %}
-                  <div class="nota-linha">
-                    <span class="nota-nome" title="{{ rot[2] }}">{{ rot[0] }}</span>
-                    <span class="bolinhas grande">
-                      {% for i in range(1, 6) %}
-                        <i class="{% if i <= rot[1] %}on{% if rot[0] == 'cuidado' and rot[1] <= 2 %} ruim{% elif rot[0] == 'cuidado' and rot[1] == 3 %} medio{% endif %}{% endif %}"></i>
-                      {% endfor %}
-                    </span>
-                    <span class="nota-valor">{{ rot[1] }}/5</span>
-                  </div>
-                {% endif %}
-              {% endfor %}
-            </div>
-          {% endif %}
-
-          {% if a.foto_extras %}
-            <div class="visao-tags">
-              {% for ex in a.foto_extras.split(',') %}
-                <span class="tag-extra">{{ ex | replace('_', ' ') }}</span>
-              {% endfor %}
-            </div>
-          {% endif %}
-
-          {% if a.foto_problemas %}
-            <div class="visao-problemas">
-              {{ ic.icone('alerta') }}
-              <span>{{ a.foto_problemas.split(',') | map('replace', '_', ' ') | join(' · ') }}</span>
-            </div>
-          {% endif %}
-
-          {% if a.foto_resumo %}
-            <p class="visao-resumo">
-              <em>{{ a.foto_resumo }}</em>
-              {% if a.foto_confianca %}
-                <span class="confianca conf-{{ a.foto_confianca }}">confiança {{ a.foto_confianca }}</span>
-              {% endif %}
-            </p>
-          {% endif %}
-        </div>
-      {% endif %}
-
+    <div class="analises">
       {% if a.comp and a.comp.razao %}
         {# Comparação com o preço praticado nas vendas reais (ITBI). As
            transações são listadas embaixo de propósito: o usuário pediu para
            poder auditar em vez de aceitar um número anônimo. #}
         {% set c = a.comp %}
         {% set r = c.razao %}
-        <div class="bloco">
+        <div class="bloco" id="s-preco">
           <h2 class="bloco-titulo">{{ ic.icone('grafico') }} Preço de mercado</h2>
 
           <div class="comp-destaque {% if r < 1 %}abaixo{% else %}acima{% endif %}">
@@ -513,13 +235,50 @@
         </div>
       {% endif %}
 
+      {% if a.venal %}
+        {# Valor venal de REFERÊNCIA (VVR), a base do ITBI: projetado da razão
+           VVR/preço medida nas transações da região. Fica perto do mercado e
+           costuma ser maior que o venal do IPTU. #}
+        <div class="bloco" id="s-vvr">
+          <h2 class="bloco-titulo">{{ ic.icone('banco') }} Valor de referência do ITBI</h2>
+          <ul class="specs grande">
+            <li>{{ ic.icone('banco') }} ~{{ a.venal.valor_venal | moeda }}
+              <span class="fraco">({{ (a.venal.razao * 100) | round | int }}% do pedido)</span>
+            </li>
+          </ul>
+          <p class="bloco-nota">
+            {# O rótulo técnico ('cep5:02919') não diz nada a quem lê. Traduz
+               para a precisão que ele representa. A preposição já vai no
+               texto, para não sair "da região da cidade". #}
+            Base: razão venal/mercado
+            {%- if a.venal.regiao == 'cidade' %} <b>da cidade</b>
+            {%- elif a.venal.regiao.startswith('cep5') %} <b>do CEP</b>
+            {%- elif a.venal.regiao.startswith('cep4') %} <b>da faixa de CEP</b>
+            {%- elif a.venal.regiao.startswith('cep3') %} <b>da região do CEP</b>
+            {%- else %} <b>{{ a.venal.regiao }}</b>{% endif %},
+            medida em {{ a.venal.n_pares | numero }} transações reais registradas
+            na prefeitura.
+            {%- if a.venal.origem_cep == 'rua' and a.venal.regiao != 'cidade' %}
+              O anúncio não informa o CEP; ele foi <b>deduzido do logradouro</b>
+              a partir das transações da prefeitura nessa mesma rua.
+            {%- elif a.venal.origem_cep == 'rua' %}
+              O anúncio não informa o CEP, e a rua não tem transações
+              suficientes para deduzi-lo com segurança.
+            {%- endif %}
+            É o <b>valor venal de referência</b> (VVR) que a prefeitura usa como
+            base mínima do ITBI (3% sobre o maior entre ele e o preço). É uma
+            projeção pela região, não uma consulta do imóvel.
+          </p>
+        </div>
+      {% endif %}
+
       {% if a.iptu %}
         {# Venal OFICIAL do IPTU: a fórmula da Lei 10.235/86 aplicada aos
            valores unitários do cadastro aberto da prefeitura (ver iptu.py).
            Não usa o preço do anúncio — por isso pode dizer se o pedido está
            muito acima do que a prefeitura avalia. #}
         {% set v = a.iptu %}
-        <div class="bloco">
+        <div class="bloco" id="s-iptu">
           <h2 class="bloco-titulo">{{ ic.icone('banco') }} Valor venal (IPTU {{ v.ano_base }})</h2>
           <ul class="specs grande">
             <li>{{ ic.icone('banco') }} {{ v.valor_venal | moeda }}
@@ -554,7 +313,6 @@
         </div>
       {% endif %}
 
-
       {# Conferir o valor venal na prefeitura. O SQL (setor-quadra-lote) só é
          conhecido quando o anúncio casou com UM lote do cadastro (~22% dos
          casos); nos demais o bloco aparece mesmo assim, com o endereço para
@@ -563,7 +321,7 @@
       {% set sql_fmt = (a.iptu.sql | sql_mascara) if (a.iptu and a.iptu.sql) else '' %}
       {% set endereco_busca = (a.mapa.endereco if a.mapa else '') %}
       {% set copiar = sql_fmt or endereco_busca %}
-      <div class="bloco">
+      <div class="bloco" id="s-prefeitura">
         <h2 class="bloco-titulo">{{ ic.icone('banco') }} Conferir na prefeitura</h2>
         {% if sql_fmt %}
           <p class="sql-linha">
@@ -598,16 +356,177 @@
         </p>
       </div>
 
+      {# metragem: ver o comentário original no histórico do git #}
+      {% if a.area_of and a.area_of.dif_pct is not none %}
+        <div class="bloco" id="s-metragem">
+          <h2 class="bloco-titulo">{{ ic.icone('area') }} Metragem x cadastro</h2>
+          <div class="area-off-bloco {{ a.area_grau }}">
+            <div class="area-off-cabeca">
+              {{ ic.icone('casa', 'ico') }}
+              <div>
+                <b>
+                  {% if a.area_of.area_casa == 'terreno' %}
+                    o anúncio publica a área do TERRENO
+                  {% elif a.area_of.area_casa == 'ambos' %}
+                    metragem compatível com o cadastro
+                  {% elif a.area_grau == 'compativel' %}
+                    metragem compatível com o cadastro
+                  {% else %}
+                    metragem {{ '%+.0f' | format(a.area_of.dif_pct) }}% vs cadastro
+                  {% endif %}
+                </b>
+                <span>
+                  {% if a.area_of.nivel == 'lote' %}
+                    lote exato no cadastro da prefeitura
+                  {% elif a.area_of.nivel == 'rua' %}
+                    mediana de {{ a.area_of.n_lotes }} lotes desta rua
+                  {% else %}
+                    mediana de {{ a.area_of.n_lotes }} lotes do bairro
+                  {% endif %}
+                </span>
+              </div>
+            </div>
+
+            <table class="area-off-tabela">
+              <tr>
+                <th></th>
+                <th>área construída</th>
+                <th>terreno</th>
+              </tr>
+              <tr>
+                <td>anúncio</td>
+                <td>{{ a.area_of.area_anuncio | m2 }}</td>
+                <td>{% if a.area_of.area_terreno_anuncio %}{{ a.area_of.area_terreno_anuncio | m2 }}{% else %}não informado{% endif %}</td>
+              </tr>
+              <tr>
+                <td>cadastro</td>
+                <td>{{ a.area_of.area_oficial | m2 }}</td>
+                <td>{% if a.area_of.area_terreno_oficial %}{{ a.area_of.area_terreno_oficial | m2 }}{% else %}—{% endif %}</td>
+              </tr>
+            </table>
+
+            {% if a.area_of.area_casa == 'terreno' %}
+              <p class="bloco-nota">
+                O anúncio informou <b>uma</b> metragem ({{ a.area_of.area_anuncio | m2 }})
+                e ela corresponde ao <b>terreno</b> do cadastro
+                ({{ a.area_of.area_terreno_oficial | m2 }}), não à construção
+                ({{ a.area_of.area_oficial | m2 }}). A maioria dos portais
+                publica só esse campo — não é erro do anúncio, é o dado que
+                ele tem. A {{ a.area_of.area_oficial | m2 }} é o que a
+                prefeitura registra como construído.
+              </p>
+            {% elif a.area_grau != 'compativel' %}
+              <p class="bloco-nota">
+                <b>Confira isto.</b> Divergência de metragem <b>não</b> prova que o
+                anúncio está errado: é comum construir ou reformar e não atualizar
+                o cadastro — a prefeitura só toma conhecimento na vistoria ou na
+                venda. Use como motivo para pedir a documentação da área
+                (projeto aprovado, IPTU atualizado) antes de decidir.
+              </p>
+            {% endif %}
+            <p class="bloco-nota">
+              Fonte: cadastro imobiliário fiscal de São Paulo (GeoSampa).
+              O valor venal <b>não</b> é divulgado pela prefeitura, por isso a
+              comparação usa área.
+            </p>
+          </div>
+        </div>
+      {% endif %}
+
+      {% if a.foto_ok %}
+        <div class="bloco" id="s-fotos">
+          <h2 class="bloco-titulo">{{ ic.icone('olho') }} O que as fotos mostram</h2>
+          <p class="bloco-nota">
+            Leitura automática das fotos, independente do texto do anúncio.
+            Serve para conferir o que o anúncio não diz.
+          </p>
+
+          <ul class="specs grande">
+            {% if a.foto_tem_quintal == 1 %}
+              <li class="destaque">
+                {{ ic.icone('arvore') }} quintal
+                {% if a.foto_piso_quintal in ('terra', 'grama', 'cimento', 'misto') %}
+                  · {{ a.foto_piso_quintal }}
+                {% endif %}
+              </li>
+            {% elif a.foto_tem_quintal == 0 %}
+              <li class="recusa">{{ ic.icone('fechar') }} sem quintal visível</li>
+            {% endif %}
+            {% if a.foto_arvores == 1 %}
+              <li class="destaque">{{ ic.icone('arvore') }} árvores</li>
+            {% endif %}
+            {% if a.foto_area_externa == 1 %}
+              <li>{{ ic.icone('terreno') }} área externa</li>
+            {% endif %}
+            {% if a.foto_janelas_grandes == 1 %}
+              <li>{{ ic.icone('expandir') }} janelas grandes</li>
+            {% endif %}
+            {% if a.foto_reformado == 1 %}
+              <li class="confirma">{{ ic.icone('check') }} parece reformado</li>
+            {% endif %}
+            {% if a.foto_fachada in ('terrea', 'sobrado') %}
+              <li>{{ ic.icone('casa') }} {{ a.foto_fachada }}</li>
+            {% endif %}
+            {% if a.foto_planta_baixa == 1 %}
+              <li>{{ ic.icone('area') }} tem planta baixa</li>
+            {% endif %}
+          </ul>
+
+          {% if a.foto_cuidado is not none or a.foto_arejamento is not none or a.foto_iluminacao is not none or a.foto_vegetacao is not none %}
+            <div class="notas-visao">
+              {% for rot in [('cuidado', a.foto_cuidado, 'conservação geral'), ('arejamento', a.foto_arejamento, 'janelas e ventilação'), ('luz natural', a.foto_iluminacao, 'luz natural nos ambientes'), ('vegetação', a.foto_vegetacao, 'presença de vegetação')] %}
+                {% if rot[1] is not none %}
+                  <div class="nota-linha">
+                    <span class="nota-nome" title="{{ rot[2] }}">{{ rot[0] }}</span>
+                    <span class="bolinhas grande">
+                      {% for i in range(1, 6) %}
+                        <i class="{% if i <= rot[1] %}on{% if rot[0] == 'cuidado' and rot[1] <= 2 %} ruim{% elif rot[0] == 'cuidado' and rot[1] == 3 %} medio{% endif %}{% endif %}"></i>
+                      {% endfor %}
+                    </span>
+                    <span class="nota-valor">{{ rot[1] }}/5</span>
+                  </div>
+                {% endif %}
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          {% if a.foto_extras %}
+            <div class="visao-tags">
+              {% for ex in a.foto_extras.split(',') %}
+                <span class="tag-extra">{{ ex | replace('_', ' ') }}</span>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          {% if a.foto_problemas %}
+            <div class="visao-problemas">
+              {{ ic.icone('alerta') }}
+              <span>{{ a.foto_problemas.split(',') | map('replace', '_', ' ') | join(' · ') }}</span>
+            </div>
+          {% endif %}
+
+          {% if a.foto_resumo %}
+            <p class="visao-resumo">
+              <em>{{ a.foto_resumo }}</em>
+              {% if a.foto_confianca %}
+                <span class="confianca conf-{{ a.foto_confianca }}">confiança {{ a.foto_confianca }}</span>
+              {% endif %}
+            </p>
+          {% endif %}
+        </div>
+      {% endif %}
+
       {# Mapa pelo texto do endereço (o banco não guarda coordenadas). O
          embed sem chave do Google resolve o texto; sem número o pino cai na
          rua, e sem rua só no bairro. #}
       {% if a.mapa %}
         {% set q = a.mapa.texto | urlencode %}
-        <div class="bloco" id="bloco-mapa" data-geo="{{ url_for('geo', anuncio_url=a.url) }}"
+        <div class="bloco largo" id="bloco-mapa" data-geo="{{ url_for('geo', anuncio_url=a.url) }}"
              data-so-bairro="{{ 1 if a.mapa.so_bairro else 0 }}">
           <h2 class="bloco-titulo">{{ ic.icone('casa') }} Localização
             <span class="fraco" id="mapa-precisao">{% if not a.mapa.preciso %}(aproximada: {{ 'só o bairro' if a.mapa.so_bairro else 'a rua, sem número' }}){% endif %}</span>
           </h2>
+          <div class="mapas">
           <iframe class="mapa" id="mapa-frame" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
                   title="Mapa do imóvel"
                   src="https://maps.google.com/maps?q={{ q }}&z={{ 17 if a.mapa.preciso else (15 if not a.mapa.so_bairro else 14) }}&hl=pt-BR&output=embed"></iframe>
@@ -615,7 +534,8 @@
           <div id="sv-bloco" hidden>
             <iframe class="mapa" id="sv-frame" loading="lazy" title="Street View do imóvel"></iframe>
           </div>
-          <div class="sql-links">
+          </div>
+          <div class="sql-links sql-links-linha">
             <a class="botao botao-2" id="link-maps" target="_blank" rel="noopener"
                href="https://www.google.com/maps/search/?api=1&query={{ q }}">
               Abrir no Google Maps
@@ -627,47 +547,128 @@
         </div>
       {% endif %}
 
-      {% if a.venal %}
-        {# Valor venal de REFERÊNCIA (VVR), a base do ITBI: projetado da razão
-           VVR/preço medida nas transações da região. Fica perto do mercado e
-           costuma ser maior que o venal do IPTU. #}
-        <div class="bloco">
-          <h2 class="bloco-titulo">{{ ic.icone('banco') }} Valor de referência do ITBI</h2>
-          <ul class="specs grande">
-            <li>{{ ic.icone('banco') }} ~{{ a.venal.valor_venal | moeda }}
-              <span class="fraco">({{ (a.venal.razao * 100) | round | int }}% do pedido)</span>
-            </li>
-          </ul>
+      {% if a.grupo_n > 1 %}
+        {# A MESMA casa anunciada por várias imobiliárias. Medido: um sobrado
+           de 108 m² em Vila Bonilha apareceu 25 vezes (4 no ZAP + 21 na OLX),
+           sempre a R$ 470.000.
+
+           Fica AQUI (na página do anúncio) e não expandindo a listagem: no
+           card, "+24 anúncios deste imóvel" viraria 25 cards idênticos. Numa
+           tabela curta, com o preço de cada portal, a informação aparece de
+           uma vez e dá para comparar.
+
+           A ordem é do mais barato para o mais caro — é o que decide a
+           compra. Alguns grupos têm quase todos no mesmo preço (medido: 24
+           de 25 no maior), então a frase do topo só fala em diferença de
+           preço quando ela realmente existe. #}
+        <div class="bloco largo" id="ofertas">
+          <h2 class="bloco-titulo">
+            {{ ic.icone('copias') }} Outras ofertas deste imóvel
+            <span class="bloco-contagem">{{ a.grupo_n }} no total</span>
+          </h2>
+
+          {% if a.grupo_menor_preco and a.grupo_maior_preco
+                and a.grupo_maior_preco > a.grupo_menor_preco %}
+            <p class="bloco-nota">
+              Os preços deste imóvel vão de
+              <b>{{ a.grupo_menor_preco | moeda }}</b> a
+              <b>{{ a.grupo_maior_preco | moeda }}</b>
+              ({{ ((a.grupo_maior_preco / a.grupo_menor_preco - 1) * 100)
+                   | round(0) | int }}% de diferença).
+              As imobiliárias anunciam a mesma casa por valores diferentes —
+              é margem para negociar.
+            </p>
+          {% else %}
+            <p class="bloco-nota">
+              Todas as ofertas deste imóvel estão pelo <b>mesmo preço</b>
+              ({{ a.grupo_menor_preco | moeda }}). O que muda é a imobiliária
+              — o valor está firme.
+            </p>
+          {% endif %}
+
+          <table class="ofertas-tabela">
+            <thead>
+              <tr>
+                <th>preço</th>
+                <th>portal</th>
+                <th>constr.</th>
+                <th>quartos</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {# O selo "mais barata" aparece UMA vez só. Medido no maior grupo:
+                 24 dos 25 anúncios têm exatamente o mesmo preço, então marcar
+                 cada um deles como "mais barata" seria 24 selos idênticos e
+                 nenhuma informação. A tabela já está ordenada do menor para o
+                 maior preço, então o primeiro é a referência. #}
+              {% set ja_marcou = namespace(menor=false) %}
+              {% if a.preco and a.grupo_menor_preco
+                    and a.preco == a.grupo_menor_preco %}
+                {% set ja_marcou.menor = true %}
+              {% endif %}
+
+              {# a linha do anúncio que está aberto, para o usuário ver onde
+                 ele se posiciona na faixa #}
+              <tr class="ofertas-atual">
+                <td>
+                  <b>{{ a.preco | moeda }}</b>
+                  {% if a.grupo_menor_preco and a.preco
+                        and a.preco > a.grupo_menor_preco %}
+                    <span class="ofertas-acima">
+                      +{{ ((a.preco / a.grupo_menor_preco - 1) * 100)
+                          | round(0) | int }}%
+                    </span>
+                  {% elif ja_marcou.menor %}
+                    <span class="ofertas-menor">mais barata</span>
+                  {% endif %}
+                </td>
+                <td>{{ a.portal }}</td>
+                <td>{{ a.area_construida | m2 }}</td>
+                <td>{{ a.quartos or '—' }}</td>
+                <td class="ofertas-voce">este anúncio</td>
+              </tr>
+              {% for c in a.copias %}
+                <tr>
+                  <td>
+                    {{ c.preco | moeda }}
+                    {% if c.preco and a.grupo_menor_preco
+                          and c.preco == a.grupo_menor_preco
+                          and not ja_marcou.menor %}
+                      {% set ja_marcou.menor = true %}
+                      <span class="ofertas-menor">mais barata</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ c.portal }}</td>
+                  <td>{{ c.area_construida | m2 }}</td>
+                  <td>{{ c.quartos or '—' }}</td>
+                  <td>
+                    <a class="ofertas-link" href="{{ url_for('detalhe', anuncio_url=c.url) }}"
+                       title="{{ c.titulo or 'ver este anúncio' }}">
+                      ver anúncio
+                    </a>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+
           <p class="bloco-nota">
-            {# O rótulo técnico ('cep5:02919') não diz nada a quem lê. Traduz
-               para a precisão que ele representa. A preposição já vai no
-               texto, para não sair "da região da cidade". #}
-            Base: razão venal/mercado
-            {%- if a.venal.regiao == 'cidade' %} <b>da cidade</b>
-            {%- elif a.venal.regiao.startswith('cep5') %} <b>do CEP</b>
-            {%- elif a.venal.regiao.startswith('cep4') %} <b>da faixa de CEP</b>
-            {%- elif a.venal.regiao.startswith('cep3') %} <b>da região do CEP</b>
-            {%- else %} <b>{{ a.venal.regiao }}</b>{% endif %},
-            medida em {{ a.venal.n_pares | numero }} transações reais registradas
-            na prefeitura.
-            {%- if a.venal.origem_cep == 'rua' and a.venal.regiao != 'cidade' %}
-              O anúncio não informa o CEP; ele foi <b>deduzido do logradouro</b>
-              a partir das transações da prefeitura nessa mesma rua.
-            {%- elif a.venal.origem_cep == 'rua' %}
-              O anúncio não informa o CEP, e a rua não tem transações
-              suficientes para deduzi-lo com segurança.
-            {%- endif %}
-            É o <b>valor venal de referência</b> (VVR) que a prefeitura usa como
-            base mínima do ITBI (3% sobre o maior entre ele e o preço). É uma
-            projeção pela região, não uma consulta do imóvel.
+            São cópias do mesmo imóvel publicadas por imobiliárias diferentes,
+            agrupadas pela semelhança das fotos. Confira a documentação antes
+            de fechar: o mesmo corretor pode ter mais de um anúncio ativo.
           </p>
         </div>
       {% endif %}
 
-      <a class="botao" href="{{ a.url }}" target="_blank" rel="noopener">
-        {{ ic.icone('expandir') }} Ver no {{ {'zap': 'ZAP Imóveis', 'vivareal': 'Viva Real', 'olx': 'OLX', 'quintoandar': 'QuintoAndar'}.get(a.portal, 'Imovelweb') }}
-      </a>
-    </aside>
+      {% if a.descricao %}
+        <div class="bloco largo" id="s-descricao">
+          <h2 class="bloco-titulo">{{ ic.icone('megafone') }} Descrição</h2>
+          <div class="descricao">{{ a.descricao }}</div>
+        </div>
+      {% endif %}
+
+    </div>
   </main>
 
   <script>

@@ -253,3 +253,52 @@ body {
 }
 .link-novos { color: var(--quente); font-weight: 700; text-decoration: none; }
 .link-novos:hover { text-decoration: underline; }
+
+/* ---------- Detalhe: resumo à direita, análises em cartões embaixo ---------- */
+/* a coluna da direita tem só o essencial e cabe na tela; o resto vira cartões */
+.resumo { align-self: start; }
+.resumo .botao { margin-top: 2px; }
+
+.analises {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
+  gap: 18px; align-items: start;
+}
+.analises > .bloco {
+  padding: 20px 22px;
+  background: var(--card);
+  border: 1px solid var(--linha);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sombra-1, 0 1px 3px rgba(16, 24, 40, .06));
+}
+.analises > .bloco.largo { grid-column: 1 / -1; }
+
+/* mapa e Street View lado a lado; sem Street View o mapa ocupa tudo */
+.mapas { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.mapas > * { flex: 1 1 320px; min-width: 0; }
+.mapas .mapa { height: 320px; margin-bottom: 0; }
+.mapas #sv-bloco[hidden] { display: none; }
+.sql-links-linha { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.descricao { white-space: pre-line; line-height: 1.6; max-width: 90ch; }
+@media (max-width: 760px) {
+  .analises { gap: 14px; }
+  .analises > .bloco { padding: 16px; }
+  .mapas .mapa { height: 260px; }
+}
+
+/* foto + resumo ficam num bloco próprio: o resumo gruda (sticky) só enquanto a
+   foto está na tela e não flutua por cima dos cartões */
+.detalhe { display: flex; flex-direction: column; gap: 24px; }
+.detalhe-topo {
+  display: grid; align-items: start; gap: 24px;
+  grid-template-columns: minmax(0, 1.65fr) minmax(330px, 1fr);
+}
+@media (max-width: 980px) { .detalhe-topo { grid-template-columns: 1fr; } }
+.tabela-venal td:last-child { white-space: nowrap; text-align: right; }
+
+/* no celular as tabelas largas rolam dentro do cartão em vez de alargar a página */
+.detalhe > *, .analises { min-width: 0; }
+.analises > .bloco { min-width: 0; }
+.comp-transacoes { overflow-x: auto; }
+.ofertas-tabela { display: block; overflow-x: auto; max-width: 100%; }
