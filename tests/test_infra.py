@@ -88,11 +88,14 @@ def test_ponte_nao_existe_em_producao():
         "from cacaimoveis import webapp; "
         "print(any(r.rule.startswith('/_ponte') for r in webapp.app.url_map.iter_rules()))"
     )
-    saida = subprocess.run(
-        [sys.executable, "-c", codigo], capture_output=True, text=True, check=True,
-        env={**__import__("os").environ, "CACA_AMBIENTE": "producao"},
-        cwd=config.RAIZ,
-    ).stdout.strip()
+    # o subprocesso não herda o `sys.path` do pytest (o conftest põe `src` lá):
+    # sem o PYTHONPATH, no CI (sem `pip install -e .`) o import falhava
+    env = {**os.environ, "CACA_AMBIENTE": "producao",
+           "PYTHONPATH": os.path.join(config.RAIZ, "src")}
+    r = subprocess.run([sys.executable, "-c", codigo], capture_output=True, text=True,
+                       env=env, cwd=config.RAIZ)
+    assert r.returncode == 0, r.stderr[-800:]
+    saida = r.stdout.strip()
     assert saida == "False"
 
 
