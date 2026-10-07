@@ -314,3 +314,14 @@ body {
   grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
 }
 .cartoes > .bloco { min-width: 0; }
+
+/* o estilo de cartão valia só para filhos diretos de .analises; os seis
+   menores agora estão em .cartoes */
+.cartoes > .bloco {
+  padding: 20px 22px;
+  background: var(--card);
+  border: 1px solid var(--linha);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sombra-1);
+}
+@media (max-width: 760px) { .cartoes > .bloco { padding: 16px; } }
