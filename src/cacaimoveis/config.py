@@ -166,6 +166,10 @@ ENCAIXE_DESCONTO_MAX = 0.5       # desconto acima disso não conta mais
 # vendas é uma pista, não uma certeza.
 ENCAIXE_PESO_CONFIANCA = {"alta": 1.0, "media": 0.8, "baixa": 0.5}
 
+# Anúncio "novo": visto pela primeira vez há no máximo N dias (contando o dia
+# de hoje). Ver `filtros.sql_novo`.
+NOVO_DIAS = 2
+
 # ---------------------------------------------------------------------------
 # Rede / polite scraping
 # ---------------------------------------------------------------------------

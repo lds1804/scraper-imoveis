@@ -162,6 +162,13 @@
           Aceita financiamento
         </label>
 
+        <label class="check"
+               title="Só os anúncios vistos pela primeira vez nos últimos dias">
+          <input type="checkbox" name="so_novos" value="1"
+                 {% if filtros.so_novos %}checked{% endif %}>
+          Só anúncios novos
+        </label>
+
         {% if tem_comp %}
           <span class="opcoes-divisor" aria-hidden="true"></span>
 
@@ -256,6 +263,10 @@
           {# Nota de encaixe: desconto sobre o mercado (pesado pela
              confiança da comparação) + conservação nas fotos. Só aparece com
              os DOIS dados — sem um deles, mostrar um número seria inventar. #}
+          {% if a.novo %}
+            <span class="selo-novo" title="Apareceu nos últimos dias">Novo</span>
+          {% endif %}
+
           {% if a.encaixe is not none %}
             {% set n = (a.encaixe * 100) | round(0) | int %}
             <span class="selo-encaixe {% if n >= 70 %}alto{% elif n >= 45 %}medio{% endif %}"

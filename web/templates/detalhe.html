@@ -73,7 +73,9 @@
 
     <aside class="painel">
       <div class="painel-cabeca">
-        <div class="preco">{{ a.preco | moeda }}</div>
+        <div class="preco">{{ a.preco | moeda }}
+          {% if a.novo %}<span class="selo-novo selo-novo-inline" title="Apareceu nos últimos dias">Novo</span>{% endif %}
+        </div>
         <h1 class="titulo">{{ a.titulo }}</h1>
         <p class="endereco">
           {{ ic.icone('pin') }}
@@ -552,6 +554,40 @@
         </div>
       {% endif %}
 
+
+      {# Conferir o valor venal na prefeitura. O SQL (setor-quadra-lote) só é
+         conhecido quando o anúncio casou com UM lote do cadastro; nos casos
+         por rua/CEP não há como saber qual é o imóvel. Os sites da prefeitura
+         não aceitam o SQL pela URL, então o botão COPIA o SQL e abre o site:
+         é só colar no campo. #}
+      {% if a.iptu and a.iptu.sql %}
+        {% set sql_fmt = a.iptu.sql | sql_mascara %}
+        <div class="bloco">
+          <h2 class="bloco-titulo">{{ ic.icone('banco') }} Conferir na prefeitura</h2>
+          <p class="sql-linha">
+            SQL do imóvel <b class="sql-valor" id="sql-valor">{{ sql_fmt }}</b>
+            <button type="button" class="sql-copiar" data-copiar="{{ sql_fmt }}">Copiar</button>
+          </p>
+          <div class="sql-links">
+            <a class="botao botao-2" target="_blank" rel="noopener"
+               data-copiar="{{ sql_fmt }}"
+               href="https://itbi.prefeitura.sp.gov.br/valorreferencia/">
+              Valor venal de referência (ITBI)
+            </a>
+            <a class="botao botao-2" target="_blank" rel="noopener"
+               data-copiar="{{ sql_fmt }}"
+               href="https://geosampa.prefeitura.sp.gov.br/">
+              Abrir no GeoSampa
+            </a>
+          </div>
+          <p class="bloco-nota">
+            O SQL é copiado ao clicar: cole no campo de busca do site
+            (no GeoSampa, em "Buscar" &rarr; "SQL").
+            <span class="sql-aviso" id="sql-aviso" hidden>SQL copiado.</span>
+          </p>
+        </div>
+      {% endif %}
+
       {% if a.venal %}
         {# Valor venal de REFERÊNCIA (VVR), a base do ITBI: projetado da razão
            VVR/preço medida nas transações da região. Fica perto do mercado e
@@ -594,6 +630,17 @@
       </a>
     </aside>
   </main>
+
+  <script>
+    // copia o SQL para a área de transferência; o link abre normalmente
+    document.querySelectorAll("[data-copiar]").forEach((el) => {
+      el.addEventListener("click", () => {
+        try { navigator.clipboard.writeText(el.dataset.copiar); } catch (e) { return; }
+        const aviso = document.getElementById("sql-aviso");
+        if (aviso) { aviso.hidden = false; setTimeout(() => { aviso.hidden = true; }, 2500); }
+      });
+    });
+  </script>
 
   {% if a.fotos and a.fotos | length > 1 %}
   <script>

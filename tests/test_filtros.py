@@ -67,3 +67,31 @@ def test_prioritarios_casam_sem_acento_e_sem_caixa(monkeypatch):
     monkeypatch.setattr(flt.config, "BAIRROS_PRIORITARIOS", ("city america", "VILA MANGALOT"))
     ordenados, n = flt.ordenar_bairros(["Lapa", "Vila Mangalot", "City América"])
     assert ordenados == ["City América", "Vila Mangalot", "Lapa"] and n == 2
+
+
+def test_novo_ignora_o_dia_da_semeadura_e_respeita_a_janela(banco):
+    """Novo = visto nos últimos N dias, sem contar o 1º dia da tabela `vistos`."""
+    import sqlite3
+
+    # a fixture é somente leitura: trabalha numa cópia em memória
+    copia = sqlite3.connect(":memory:")
+    copia.row_factory = sqlite3.Row
+    banco.backup(copia)
+    banco = copia
+    flt.registrar_funcoes(banco)
+    urls = [r[0] for r in banco.execute("SELECT url FROM anuncios LIMIT 4")]
+    base, recente, antigo, sem_registro = urls
+    banco.execute("DELETE FROM vistos")
+    banco.executemany(
+        "INSERT INTO vistos (url, portal, primeira_vez, ultima_vez) VALUES (?, 'x', "
+        "datetime('now', 'localtime', ?), datetime('now'))",
+        [(base, "-30 days"),      # dia da semeadura: nunca é novo
+         (recente, "-0 days"),    # hoje
+         (antigo, "-10 days")])   # depois da semeadura, mas fora da janela
+    f = flt.Filtros(todas=True, so_novos=True)
+    sql, params = flt.montar_consulta(banco, f, tem_comp=True, tem_dup=True)
+    assert [r["url"] for r in banco.execute(sql, params)] == [recente]
+    # o selo usa a mesma expressão que o filtro
+    sql, params = flt.montar_consulta(banco, flt.Filtros(todas=True), True, True)
+    novos = {r["url"] for r in banco.execute(sql, params) if r["_novo"]}
+    assert novos == {recente} and sem_registro not in novos

@@ -219,3 +219,31 @@ body {
   font-size: .68rem; font-weight: 600; letter-spacing: .04em;
   text-transform: uppercase; color: var(--muted-2);
 }
+
+/* ---------- Selo "Novo" e conferência do SQL ---------- */
+.selo-novo {
+  position: absolute; top: 10px; right: 10px; z-index: 3;
+  padding: 4px 10px; border-radius: 999px;
+  background: var(--quente); color: #fff;
+  font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+}
+.selo-novo-inline {
+  position: static; display: inline-block; margin-left: 8px; vertical-align: middle;
+  box-shadow: none;
+}
+.sql-linha { margin: 0 0 10px; font-size: .86rem; color: var(--texto-2); }
+.sql-valor { font-variant-numeric: tabular-nums; color: var(--texto); }
+.sql-copiar {
+  margin-left: 8px; padding: 3px 10px; cursor: pointer;
+  border: 1px solid var(--linha-forte); border-radius: 999px;
+  background: var(--bg-alt); color: var(--texto-2); font-size: .74rem; font-weight: 600;
+}
+.sql-copiar:hover { background: var(--accent-claro); border-color: var(--accent-borda); }
+.sql-links { display: grid; gap: 8px; }
+.botao-2 {
+  background: var(--accent-claro); color: var(--accent);
+  border: 1px solid var(--accent-borda); box-shadow: none;
+}
+.botao-2:hover { background: var(--accent-borda); box-shadow: none; }
+.sql-aviso { color: var(--verde); font-weight: 700; }

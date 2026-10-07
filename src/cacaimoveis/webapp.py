@@ -50,6 +50,13 @@ def _injetar_icones():
     }
 
 
+@app.template_filter("sql_mascara")
+def _sql_mascara(sql: str | None) -> str:
+    """'0780890174-1' -> '078.089.0174-1' (como a prefeitura mostra o SQL)."""
+    s = "".join(c for c in str(sql or "") if c.isdigit())
+    return f"{s[:3]}.{s[3:6]}.{s[6:10]}-{s[10:]}" if len(s) == 11 else str(sql or "")
+
+
 @app.template_filter("moeda")
 def _moeda(valor) -> str:
     if valor is None:
@@ -181,6 +188,8 @@ def _chips_ativos(filtros: dict) -> list[dict]:
             q["so_arvores"] = "1"
         if filtros.get("so_abaixo") and sem != "so_abaixo":
             q["so_abaixo"] = "1"
+        if filtros.get("so_novos") and sem != "so_novos":
+            q["so_novos"] = "1"
         if filtros.get("ordem") and filtros["ordem"] != flt.ORDEM_PADRAO:
             q["ordem"] = filtros["ordem"]
 
@@ -227,6 +236,8 @@ def _chips_ativos(filtros: dict) -> list[dict]:
         chips.append({"rotulo": "com árvores (foto)", "url": base("so_arvores")})
     if filtros.get("so_abaixo"):
         chips.append({"rotulo": "abaixo do preço praticado", "url": base("so_abaixo")})
+    if filtros.get("so_novos"):
+        chips.append({"rotulo": "só anúncios novos", "url": base("so_novos")})
 
     return chips
 
@@ -591,6 +602,7 @@ def index():
         d["iptu"] = iptus.get(a["url"])
         # nota de encaixe, para o selo no card (calculada no próprio SELECT)
         d["encaixe"] = a["_nota"]
+        d["novo"] = bool(a["_novo"])
         # "n_copias" é quantas ofertas do mesmo imóvel existem (1 = única).
         # O aviso no card só aparece quando há mais de uma.
         grupo = a["dup_grupo"]
@@ -734,6 +746,10 @@ def detalhe(anuncio_url: str):
     d["grupo_menor_preco"] = min(precos) if precos else None
     d["grupo_maior_preco"] = max(precos) if precos else None
     d["grupo_n"] = len(copias) + 1
+    d["novo"] = bool(conn.execute(
+        f"SELECT {flt.sql_novo()} FROM anuncios a "
+        "LEFT JOIN vistos v ON v.url = a.url WHERE a.url = ?", (anuncio_url,),
+    ).fetchone()[0]) if flt._tem_vistos(conn) else False
     d["fotos"] = _fotos_locais(anuncio_url)
     # URLs já prontas (o JS do carrossel usa direto, sem montar caminho)
     d["fotos_web"] = [url_for("foto", caminho=f) for f in d["fotos"]]

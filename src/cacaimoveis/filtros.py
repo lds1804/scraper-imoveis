@@ -81,6 +81,28 @@ def resolver_bairros(conn: sqlite3.Connection, valores: list[str]) -> list[str]:
     return saida
 
 
+def _tem_vistos(conn: sqlite3.Connection) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='vistos'"
+    ).fetchone() is not None
+
+
+def sql_novo() -> str:
+    """Expressão SQL (0/1) de "anúncio novo"; precisa de `LEFT JOIN vistos v`.
+
+    Novo = primeira vez visto nos últimos `config.NOVO_DIAS` dias, **excluído o
+    primeiro dia da tabela `vistos`**: ela foi semeada com tudo o que já existia
+    e esse dia mistura "já tinha" com "chegou naquele dia" (medido em
+    2026-10-07: 6.037 dos 6.172 anúncios têm primeira_vez de 06/10). Sem essa
+    exclusão o selo marcaria a base inteira.
+    """
+    return (
+        "(v.primeira_vez IS NOT NULL "
+        "AND date(v.primeira_vez) > (SELECT date(MIN(primeira_vez)) FROM vistos) "
+        f"AND date(v.primeira_vez) >= date('now', 'localtime', '-{int(config.NOVO_DIAS) - 1} days'))"
+    )
+
+
 def nota_encaixe(a: dict, razao: float | None,
                  confianca: str | None = None) -> float | None:
     """Nota de encaixe: desconto + conservação, medidos nas fotos.
@@ -152,6 +174,7 @@ class Filtros:
     sem_financiamento: bool = False
     so_arvores: bool = False
     so_abaixo: bool = False
+    so_novos: bool = False
     todas: bool = False
     ordem: str = ORDEM_PADRAO
 
@@ -186,6 +209,8 @@ class Filtros:
             so_arvores=marcado("so_arvores"),
             # comparação com o preço praticado (ITBI)
             so_abaixo=marcado("so_abaixo"),
+            # anúncios que chegaram nos últimos dias (ver `sql_novo`)
+            so_novos=marcado("so_novos"),
             # Mostrar só UMA linha por imóvel. A mesma casa é anunciada por
             # várias imobiliárias (medido: 2.857 anúncios em 1.000 grupos; um
             # sobrado apareceu 25 vezes). `?todas=1` desliga.
@@ -209,10 +234,14 @@ def montar_consulta(conn: sqlite3.Connection, f: Filtros, tem_comp: bool,
     para que quem NÃO tem comparação continue aparecendo — só vai para o fim.
     """
     razao, confianca = ("c.razao", "c.confianca") if tem_comp else ("NULL", "NULL")
+    tem_vistos = _tem_vistos(conn)
+    novo = sql_novo() if tem_vistos else "0"
     sql = (f"SELECT a.*, nota_encaixe({razao}, a.foto_cuidado, a.foto_problemas, "
-           f"{confianca}) AS _nota FROM anuncios a ")
+           f"{confianca}) AS _nota, {novo} AS _novo FROM anuncios a ")
     if tem_comp:
         sql += "LEFT JOIN comparacoes c ON c.anuncio_url = a.url "
+    if tem_vistos:
+        sql += "LEFT JOIN vistos v ON v.url = a.url "
     # anúncio que saiu do ar não está à venda: fica fora da listagem
     sql += "WHERE a.removido_em IS NULL"
     params: list = []
@@ -265,6 +294,8 @@ def montar_consulta(conn: sqlite3.Connection, f: Filtros, tem_comp: bool,
         sql += " AND (" + " OR ".join(partes) + ")"
     if f.so_arvores:
         sql += " AND a.foto_arvores = 1"
+    if f.so_novos:
+        sql += f" AND {novo}"
 
     # UMA linha por imóvel: só o principal do grupo de duplicatas. Quem não
     # está em grupo nenhum continua aparecendo. As cópias aparecem na página
