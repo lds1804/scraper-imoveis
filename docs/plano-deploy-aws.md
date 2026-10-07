@@ -1,3 +1,7 @@
+> **⚠️ Arquitetura substituída em 2026-10-07** por [`plano-deploy-aws-android.md`](plano-deploy-aws-android.md)
+> (só backend + crawler, consumidos por app Android). Este documento continua
+> valendo para custo de visão (§1.2, §4) e legalidade (§2).
+
 # Plano de deploy na AWS (free tier) + atualização automática
 
 > **Método:** todo número deste documento foi **medido no banco, na rede ou no
