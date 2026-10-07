@@ -325,3 +325,16 @@ body {
   box-shadow: var(--sombra-1);
 }
 @media (max-width: 760px) { .cartoes > .bloco { padding: 16px; } }
+
+/* ---------- Entorno e riscos ---------- */
+.entorno { display: grid; gap: 18px 24px;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); }
+.entorno-col h3 { margin: 0 0 8px; font-size: .74rem; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted); }
+.entorno-col ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px;
+  font-size: .86rem; color: var(--texto-2); line-height: 1.4; }
+.entorno-col li { padding-left: 14px; position: relative; }
+.entorno-col li::before { content: ""; position: absolute; left: 0; top: .55em; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--linha-forte); }
+.entorno-col li.alerta::before { background: var(--quente); }
+.entorno-col li.ok::before { background: var(--verde); }

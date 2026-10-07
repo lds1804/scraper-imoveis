@@ -524,29 +524,108 @@
          rua, e sem rua só no bairro. #}
       {% if a.mapa %}
         {% set q = a.mapa.texto | urlencode %}
-        <div class="bloco largo" id="bloco-mapa" data-geo="{{ url_for('geo', anuncio_url=a.url) }}"
-             data-so-bairro="{{ 1 if a.mapa.so_bairro else 0 }}">
+        {% set g = a.geo %}
+        {% set ll = ('%.6f,%.6f' | format(g.lat, g.lon)) if g else '' %}
+        <div class="bloco largo" id="bloco-mapa" {% if not g %}data-geo="{{ url_for('geo', anuncio_url=a.url) }}"{% endif %}>
           <h2 class="bloco-titulo">{{ ic.icone('casa') }} Localização
-            <span class="fraco" id="mapa-precisao">{% if not a.mapa.preciso %}(aproximada: {{ 'só o bairro' if a.mapa.so_bairro else 'a rua, sem número' }}){% endif %}</span>
+            <span class="fraco" id="mapa-precisao">
+              {%- if g -%}
+                {%- if g.precisao == 'proximo' %}(estimada pelos números vizinhos na rua)
+                {%- elif g.precisao == 'rua' %}(meio da rua: o anúncio não informa o número)
+                {%- endif -%}
+              {%- elif not a.mapa.preciso %}(aproximada: {{ 'só o bairro' if a.mapa.so_bairro else 'a rua, sem número' }})
+              {%- endif -%}
+            </span>
           </h2>
           <div class="mapas">
-          <iframe class="mapa" id="mapa-frame" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
-                  title="Mapa do imóvel"
-                  src="https://maps.google.com/maps?q={{ q }}&z={{ 17 if a.mapa.preciso else (15 if not a.mapa.so_bairro else 14) }}&hl=pt-BR&output=embed"></iframe>
-          {# Street View: só aparece quando as coordenadas chegam (rota /geo) #}
-          <div id="sv-bloco" hidden>
-            <iframe class="mapa" id="sv-frame" loading="lazy" title="Street View do imóvel"></iframe>
-          </div>
+            <iframe class="mapa" id="mapa-frame" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
+                    title="Mapa do imóvel"
+                    src="{% if g %}https://maps.google.com/maps?q={{ ll }}&z=18&hl=pt-BR&output=embed{% else %}https://maps.google.com/maps?q={{ q }}&z={{ 17 if a.mapa.preciso else (15 if not a.mapa.so_bairro else 14) }}&hl=pt-BR&output=embed{% endif %}"></iframe>
+            <div id="sv-bloco" {% if not g %}hidden{% endif %}>
+              <iframe class="mapa" id="sv-frame" loading="lazy" title="Street View do imóvel"
+                      {% if g %}src="https://maps.google.com/maps?layer=c&cbll={{ ll }}&cbp=12,0,0,0,0&source=embed&output=svembed"{% endif %}></iframe>
+            </div>
           </div>
           <div class="sql-links sql-links-linha">
             <a class="botao botao-2" id="link-maps" target="_blank" rel="noopener"
-               href="https://www.google.com/maps/search/?api=1&query={{ q }}">
+               href="https://www.google.com/maps/search/?api=1&query={{ ll or q }}">
               Abrir no Google Maps
             </a>
-            <a class="botao botao-2" id="link-sv" target="_blank" rel="noopener" hidden>
+            <a class="botao botao-2" id="link-sv" target="_blank" rel="noopener" {% if not g %}hidden{% else %}
+               href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint={{ ll }}"{% endif %}>
               Abrir o Street View
             </a>
           </div>
+        </div>
+      {% endif %}
+
+      {% if a.entorno %}
+        {# Entorno: camadas do GeoSampa cruzadas com a coordenada (camadas.py).
+           É contexto, não avaliação: o ponto pode estar no meio da rua, e a
+           faixa de precisão vai no rodapé. #}
+        {% set e = a.entorno %}
+        <div class="bloco largo" id="s-entorno">
+          <h2 class="bloco-titulo">{{ ic.icone('pin') }} Entorno e riscos</h2>
+          <div class="entorno">
+            <div class="entorno-col">
+              <h3>Zona e restrições</h3>
+              <ul>
+                {% if e.zona %}<li><b>{{ e.zona.sigla }}</b> · {{ e.zona.nome }}</li>{% endif %}
+                {% if e.operacao_urbana %}<li>Operação urbana: {{ e.operacao_urbana | title }}</li>{% endif %}
+                {% if e.tombado %}<li class="alerta">Lote tombado (patrimônio cultural)</li>{% endif %}
+                {% if e.envoltoria %}<li class="alerta">Área envoltória de bem tombado: {{ e.envoltoria }}.
+                  <span class="fraco">Reforma e demolição podem exigir aprovação do conselho.</span></li>{% endif %}
+                {% if e.contaminada %}
+                  <li class="alerta">
+                    {% if e.contaminada.potencial %}Atividade com potencial de contaminação a {{ e.contaminada.dist_m | dist }}
+                      <span class="fraco">(cadastro, sem confirmação)</span>
+                    {% else %}Área {{ e.contaminada.classe | lower }} a {{ e.contaminada.dist_m | dist }}{% endif %}
+                  </li>
+                {% endif %}
+                {% if not (e.zona or e.operacao_urbana or e.tombado or e.envoltoria or e.contaminada) %}
+                  <li class="fraco">Sem restrição nas camadas consultadas</li>{% endif %}
+              </ul>
+            </div>
+            <div class="entorno-col">
+              <h3>Terreno e risco</h3>
+              <ul>
+                {% if e.declividade %}<li>Declividade: {{ e.declividade }}</li>{% endif %}
+                {% if e.inundavel %}<li class="alerta">Em área inundável (cheia de 100 anos)</li>{% endif %}
+                {% if e.alagamentos_300m %}<li class="alerta">{{ e.alagamentos_300m }} ocorrência{{ 's' if e.alagamentos_300m != 1 }} de alagamento/inundação a até 300 m</li>{% endif %}
+                {% if e.risco_hidro %}<li class="alerta">Risco hidrológico {{ e.risco_hidro.grau }}{% if e.risco_hidro.dentro %} (dentro da área){% else %} a {{ e.risco_hidro.dist_m | dist }}{% endif %}</li>{% endif %}
+                {% if e.risco_geo %}<li class="alerta">Risco geológico {{ e.risco_geo.grau }}{% if e.risco_geo.tipo %} ({{ e.risco_geo.tipo | lower }}){% endif %}{% if e.risco_geo.dentro %}, dentro da área{% else %}, a {{ e.risco_geo.dist_m | dist }}{% endif %}</li>{% endif %}
+                {% if e.solo_mole %}<li class="alerta">Solo mole (carta geotécnica): fundação exige cuidado</li>{% endif %}
+                {% if not (e.inundavel or e.alagamentos_300m or e.risco_hidro or e.risco_geo or e.solo_mole) %}
+                  <li class="ok">Fora das áreas de risco mapeadas</li>{% endif %}
+              </ul>
+            </div>
+            <div class="entorno-col">
+              <h3>Mobilidade</h3>
+              <ul>
+                {% if e.metro %}<li>Metrô <b>{{ e.metro.nome | title }}</b> ({{ e.metro.linha | title }}): {{ e.metro.dist_m | dist }} · {{ e.metro.dist_m | a_pe }}</li>{% endif %}
+                {% if e.trem %}<li>Trem <b>{{ e.trem.nome | title }}</b> ({{ e.trem.linha | title }}): {{ e.trem.dist_m | dist }} · {{ e.trem.dist_m | a_pe }}</li>{% endif %}
+                {% if e.corredor %}<li>Corredor de ônibus ({{ e.corredor.nome | title }}): {{ e.corredor.dist_m | dist }}</li>{% endif %}
+                {% if not (e.metro or e.trem or e.corredor) %}<li class="fraco">Sem metrô, trem ou corredor num raio de 3 km</li>{% endif %}
+              </ul>
+            </div>
+            <div class="entorno-col">
+              <h3>Vizinhança</h3>
+              <ul>
+                {% if e.ipvs %}<li>Vulnerabilidade social (IPVS 2022): grupo <b>{{ e.ipvs }}</b> de 7
+                  <span class="fraco">(1 = menor)</span></li>{% endif %}
+                {% if e.parque %}<li>Parque <b>{{ e.parque.nome }}</b>: {{ e.parque.dist_m | dist }}</li>{% endif %}
+                {% if e.hospital %}<li>Hospital: {{ e.hospital.nome | title }}, {{ e.hospital.dist_m | dist }}</li>{% endif %}
+                {% if e.favela %}<li class="alerta">Favela cadastrada a {{ e.favela.dist_m | dist }}{% if e.favela.nome %} ({{ e.favela.nome | title }}){% endif %}</li>{% endif %}
+              </ul>
+            </div>
+          </div>
+          <p class="bloco-nota">
+            Fonte: GeoSampa (prefeitura de São Paulo). A posição do imóvel vem do cadastro de lotes:
+            {% if e.precisao == 'lote' %}lote exato.
+            {% elif e.precisao == 'proximo' %}estimada pelos números vizinhos da rua.
+            {% else %}meio da rua (o anúncio não informa o número), então distâncias podem variar algumas dezenas de metros.{% endif %}
+            Contexto para pesquisar, não é laudo.
+          </p>
         </div>
       {% endif %}
 
@@ -690,7 +769,7 @@
     // quando chegam, o mapa passa a apontar para elas e o Street View aparece
     (function () {
       const bloco = document.getElementById("bloco-mapa");
-      if (!bloco) return;
+      if (!bloco || !bloco.dataset.geo) return;
       fetch(bloco.dataset.geo).then((r) => r.json()).then((g) => {
         if (!g || g.lat == null) return;
         const ll = g.lat + "," + g.lon;
@@ -702,8 +781,8 @@
         const sv = document.getElementById("link-sv");
         sv.href = "https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=" + ll;
         sv.hidden = false;
-        document.getElementById("mapa-precisao").textContent = g.precisao === "casa"
-          ? "" : "(pino na rua: o número não foi localizado)";
+        document.getElementById("mapa-precisao").textContent = g.precisao === "lote"
+          ? "" : "(posição estimada pela rua)";
       }).catch(() => {});
     })();
   </script>

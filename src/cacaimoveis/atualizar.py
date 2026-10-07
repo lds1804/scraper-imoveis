@@ -21,6 +21,7 @@ Etapas (na ordem):
     fotos        baixa as fotos de anúncios que ficaram sem nenhuma
     duplicatas   agrupa o mesmo imóvel anunciado por várias imobiliárias
     endereco     herda número e CEP entre cópias do mesmo imóvel
+    entorno      coordenadas (cadastro de lotes) e camadas de risco/transporte
     visao        análise das fotos (Claude Code CLI ou DeepSeek)
     itbi         comparação com o preço praticado (só o que é novo ou mudou)
     venal        valor venal de referência (VVR, base do ITBI) estimado
@@ -32,6 +33,7 @@ Etapas (na ordem):
     iptu         cadastro anual do IPTU: ingere o arquivo novo, ou AVISA que o
                  do ano corrente ainda não foi baixado (o site da prefeitura
                  bloqueia download por script; ver `caca-iptu --situacao`)
+    camadas      baixa de novo o recorte das camadas do GeoSampa
     ajustes      refaz modelo terreno+construção, razão venal e ruas
 
 Uso:
@@ -151,6 +153,13 @@ def montar_etapas(args) -> list[Etapa]:
               [["achar_duplicatas", "--marcar", "--quieto"]]),
         Etapa("endereco", "número e CEP herdados entre cópias",
               [["herdar_endereco", "--gravar"]]),
+        # mensal e ANTES do 'entorno': as camadas mudam devagar, mas quando mudam
+        # o contexto de todos os anúncios precisa ser recalculado com elas
+        Etapa("camadas", "recorte novo das camadas do GeoSampa (risco, metrô, zoneamento)",
+              [["camadas", "--baixar", "--refazer"], ["camadas", "--calcular", "--refazer"]],
+              mensal=True),
+        Etapa("entorno", "coordenadas (cadastro) e camadas de risco, transporte e zoneamento",
+              [["geocode"], ["camadas", "--calcular"]]),
         Etapa("visao", f"análise das fotos ({args.provedor})", [visao]),
         Etapa("itbi-baixar", "planilhas novas do ITBI",
               [["itbi", "--baixar"], ["ingerir_itbi"]], mensal=True),
@@ -237,8 +246,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description="Atualiza anúncios, fotos, análise visual e referências de valor",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="Etapas: backup imovelweb coleta fotos duplicatas endereco visao "
-               "itbi-baixar iptu ajustes itbi venal venal-iptu area")
+        epilog="Etapas: backup imovelweb coleta fotos duplicatas endereco entorno visao "
+               "itbi-baixar iptu camadas ajustes itbi venal venal-iptu area")
     ap.add_argument("--completo", action="store_true",
                     help="inclui as etapas mensais (ITBI novo e ajustes dos modelos)")
     ap.add_argument("--imovelweb", action="store_true",

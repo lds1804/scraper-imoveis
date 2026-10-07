@@ -72,6 +72,40 @@ def _local_do_mapa(a: dict) -> dict | None:
     }
 
 
+@app.template_filter("dist")
+def _dist(metros) -> str:
+    """850 -> '850 m' · 2300 -> '2,3 km'."""
+    try:
+        m = float(metros)
+    except (TypeError, ValueError):
+        return ""
+    return f"{m:.0f} m" if m < 1000 else f"{m / 1000:.1f} km".replace(".", ",")
+
+
+@app.template_filter("a_pe")
+def _a_pe(metros) -> str:
+    """Minutos a pé (80 m/min), em texto curto: '11 min a pé'."""
+    try:
+        return f"{max(1, round(float(metros) / 80))} min a pé"
+    except (TypeError, ValueError):
+        return ""
+
+
+def _entorno(conn: sqlite3.Connection, anuncio_url: str) -> dict | None:
+    """Contexto de risco/transporte/zoneamento calculado por `camadas.py`."""
+    import json
+
+    try:
+        linha = conn.execute(
+            "SELECT dados, precisao FROM contexto WHERE anuncio_url = ?",
+            (anuncio_url,)).fetchone()
+    except sqlite3.OperationalError:     # tabela ainda não existe
+        return None
+    if not linha:
+        return None
+    return {**json.loads(linha["dados"]), "precisao": linha["precisao"]}
+
+
 @app.template_filter("sql_mascara")
 def _sql_mascara(sql: str | None) -> str:
     """'0780890174-1' -> '078.089.0174-1' (como a prefeitura mostra o SQL)."""
@@ -789,6 +823,17 @@ def detalhe(anuncio_url: str):
         "LEFT JOIN vistos v ON v.url = a.url WHERE a.url = ?", (anuncio_url,),
     ).fetchone()[0]) if flt._tem_vistos(conn) else False
     d["mapa"] = _local_do_mapa(d)
+    # coordenadas: vêm do cadastro, já baixado (sem rede). Sem elas o mapa cai
+    # para o texto do endereço e a rota /geo tenta baixar a rua.
+    from cacaimoveis import geocode
+
+    try:
+        d["geo"] = geocode.localizar(
+            conn, d.get("rua") or "", d.get("bairro") or "", d.get("cep") or "",
+            d.get("rua_chave") or "", consultar_rede=False)
+    except sqlite3.OperationalError:
+        d["geo"] = None
+    d["entorno"] = _entorno(conn, anuncio_url)
     d["fotos"] = _fotos_locais(anuncio_url)
     # URLs já prontas (o JS do carrossel usa direto, sem montar caminho)
     d["fotos_web"] = [url_for("foto", caminho=f) for f in d["fotos"]]
@@ -806,14 +851,15 @@ def geo(anuncio_url: str):
     from cacaimoveis import geocode
 
     a = _conn().execute(
-        "SELECT rua, bairro, cep FROM anuncios WHERE url = ?", (anuncio_url,)).fetchone()
+        "SELECT rua, bairro, cep, rua_chave FROM anuncios WHERE url = ?", (anuncio_url,)).fetchone()
     if a is None:
         abort(404)
     # conexão própria: `_conn()` é uma por requisição e a gravação do cache
     # não deve disputar com ela
     escrita = sqlite3.connect(config.DB_PATH, timeout=30)
     try:
-        achado = geocode.obter(escrita, a["rua"] or "", a["bairro"] or "", a["cep"] or "")
+        achado = geocode.localizar(escrita, a["rua"] or "", a["bairro"] or "",
+                                   a["cep"] or "", a["rua_chave"] or "")
     finally:
         escrita.close()
     return jsonify(achado)

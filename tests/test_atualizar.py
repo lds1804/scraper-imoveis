@@ -21,13 +21,15 @@ def _plano(**kw):
 
 def test_plano_diario_na_ordem_certa():
     assert _plano() == ["backup", "coleta", "fotos", "duplicatas", "endereco",
-                        "visao", "itbi", "venal", "venal-iptu", "area"]
+                        "entorno", "visao", "itbi", "venal", "venal-iptu", "area"]
 
 
 def test_completo_inclui_as_mensais_antes_da_comparacao():
     p = _plano(completo=True)
     assert p.index("itbi-baixar") < p.index("iptu") < p.index("ajustes") < p.index("itbi")
     assert p.index("iptu") < p.index("venal-iptu")
+    # camadas novas ANTES de calcular o entorno com elas
+    assert p.index("camadas") < p.index("entorno")
 
 
 def _plano_da_linha_de_comando(capsys, *flags):
