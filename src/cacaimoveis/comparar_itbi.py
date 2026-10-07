@@ -15,8 +15,8 @@ Para cada nível, só entram transações de área construída PARECIDA (±25%) 
 comparar uma casa de 60 m² com um sobrado de 300 m² não diz nada.
 
 VALORES: o ITBI cobre 2006–2026, então todo valor é corrigido para a data de
-referência pelo índice em `indices.py` (IGP-M por padrão, ver lá a medição que
-escolheu ele). Sem isso, uma venda de 2010 pareceria uma pechincha só por ser
+referência pelo índice em `indices.py` (FipeZap SP por padrão; ver lá o backtest
+que o escolheu sobre o IGP-M). Sem isso, uma venda de 2010 pareceria uma pechincha só por ser
 antiga.
 
 JANELA DE 10 ANOS: além de corrigir o valor, a comparação DESCARTA vendas muito
@@ -24,8 +24,8 @@ antigas. As duas coisas juntas é que resolvem — corrigir sem limitar a época
 ainda mistura 2007 com 2020 na mesma mediana. Ver `JANELA_ANOS` para o caso
 real que denunciou o defeito e a medição do viés.
 
-RESSALVA IMPORTANTE que vai no resultado: o IGP-M reajusta preços pelo índice,
-mas imóveis podem valorizar mais ou menos que isso. Então a média serve como
+RESSALVA IMPORTANTE que vai no resultado: o índice reajusta preços pela média da
+cidade, mas cada imóvel pode valorizar mais ou menos que isso. Então a média serve como
 referência "se o imóvel tivesse acompanhado o índice", não como preço de
 mercado exato. Por isso o resultado guarda QUANTAS transações foram usadas e
 QUAIS foram — para você julgar, não para aceitar um número anônimo.
@@ -925,9 +925,9 @@ def detalhar(conn: sqlite3.Connection, alvo: str) -> int:
         print(f"{data:>10s} {t['area']:>6.0f}m² {t['valor_corrigido']:>14,.0f} "
               f"{t['preco_m2']:>11,.0f}  {t['logradouro'][:26]} "
               f"{t['numero'] or ''} (cep {t['cep']})")
-    print("\nRESSALVA: o IGP-M é um índice de preços AO PRODUTOR/ATACADO, e o")
-    print("valorizado mais ou menos que isso, então trate a mediana como")
-    print("referência, não como preço de mercado exato.")
+    print("\nRESSALVA: o índice de correção é uma média da cidade (FipeZap SP: preço")
+    print("pedido de apartamentos); cada casa pode ter valorizado mais ou menos que")
+    print("isso, então trate a mediana como referência, não como preço de mercado.")
     return 0
 
 
@@ -939,7 +939,7 @@ def main() -> int:
     p.add_argument("--atualizar", action="store_true",
                    help="recalcula SÓ se o índice mudou ou saiu mês novo "
                         "(para agendar após a publicação do IGP-M)")
-    p.add_argument("--indice", choices=("igpm", "ipca"), default=None,
+    p.add_argument("--indice", choices=indices.INDICES, default=None,
                    help="índice de correção (padrão: configurado em indices.py)")
     p.add_argument("--forcar", action="store_true",
                    help="com --atualizar, refaz mesmo se já estiver em dia")

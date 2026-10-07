@@ -353,7 +353,7 @@
                 {% if a.comp and a.comp.razao %}
                   {% set r = a.comp.razao %}
                   <div class="v-linha"
-                       title="Mediana de {{ a.comp.n_transacoes }} venda(s) reais registradas na prefeitura (ITBI), dos últimos 10 anos, corrigidas pelo IGP-M. Confiança {{ a.comp.confianca }}.">
+                       title="Mediana de {{ a.comp.n_transacoes }} venda(s) reais registradas na prefeitura (ITBI), dos últimos 10 anos, corrigidas pelo {{ {'fipezap': 'FipeZap SP', 'igpm': 'IGP-M', 'ipca': 'IPCA'}.get(a.comp.indice_reajuste, 'índice') }}. Confiança {{ a.comp.confianca }}.">
                     <dt>Mercado</dt>
                     <dd>
                       {{ a.comp.mediana | moeda_curta }}

@@ -31,7 +31,7 @@ then compares what the *text* claims against what the *photos* actually show.
 | Ads | **4,793** (zap 1,895 · olx 1,890 · quintoandar 877 · imovelweb 131) |
 | Photos downloaded | **57,402** |
 | Ads with vision analysis | **1,829** in the 3 target neighborhoods (0 failures) |
-| ITBI transactions ingested | **537,354** (2006–2026, IGP-M-adjusted) |
+| ITBI transactions ingested | **537,354** (2006–2026, FipeZap-adjusted) |
 | GeoSampa fiscal lots | **26,475** |
 | Neighborhoods with results | 18 |
 
@@ -291,7 +291,7 @@ src/cacaimoveis/        production code (an installable package)
   # ITBI + valuation
   itbi.py               discover + download the monthly spreadsheets
   ingerir_itbi.py       ingest into SQLite (columns mapped by NAME)
-  indices.py            IGP-M / IPCA correction (BCB)
+  indices.py            FipeZap SP / IGP-M / IPCA correction
   endereco.py           address normalization (the two sources disagree)
   comparar_itbi.py      asking vs. transacted price, cascade of 3 levels
   modelo_casa.py        land + building model (see above)
@@ -371,20 +371,33 @@ listing was thought to be sufficient. The result: 129 detail pages captured and
 processed "successfully" while every ad stayed at 1 photo. Fixed — photos went
 from 675 to 4,756.
 
-### Inflation adjustment: IGP-M is not obtainable, IPCA is
+### Price adjustment: FipeZap beats IGP-M and IPCA (measured)
 
-The IGP-M index would be the natural choice for real-estate correction. It
-**could not be fetched**, for a concrete reason: `api.bcb.gov.br` returns
-**NXDOMAIN** — verified against two independent public resolvers (Google and
-Cloudflare both answer `Status: 3`). It is not a network block; the hostname no
-longer exists in public DNS. The FGV portal rejects TLS, and IPEAData times out.
-Other BCB hostnames resolve to the *same* IP but serve a different application.
+ITBI sale prices from 2006–2026 must be brought to today's money before they can
+be compared with a current ad. Three series are supported (`indices.py`):
+**FipeZap São Paulo** (default), IGP-M (BCB) and IPCA (IBGE).
 
-The IPCA (IBGE, aggregate 1737) works and is what the project uses. It is also
-sufficient, for an empirical reason: the median R$/m² per year, IPCA-adjusted,
-runs from 1.000 (2006) to 2.285 (2014) and back to 1.888 (2026) — so the IPCA
-already carries the real-estate cycle, since property rose **more** than general
-inflation up to 2014 and **less** afterwards.
+(An earlier version of this section said the IGP-M "could not be fetched"
+because `api.bcb.gov.br` returned NXDOMAIN. That was wrong: the host resolves;
+the real problem was a self-signed TLS certificate, handled with `verify=False`.)
+
+Backtest, `experimentos/medir_fipezap.py` — 18,620 pairs of house sales on the
+same street (area within ±30%, more than 24 months apart); the older sale is
+moved to the newer one's date and compared with its real R$/m²:
+
+| index | median abs. error | bias |
+|---|---|---|
+| **FipeZap SP** | **30.6%** | +0.7% |
+| IPCA | 35.9% | −10.7% |
+| IGP-M | 37.1% | −0.4% |
+| none | 58.6% | −53.7% |
+
+FipeZap wins at every horizon and errs less than IGP-M in 57% of pairs. Caveats:
+it is an **asking-price index for apartments**, and the pairs reuse sales, so
+the confidence interval is optimistic. Effect on the app: the median
+price-vs-market ratio moved from 1.006 to 1.096, and the share of ads "below the
+price actually paid" from 49.5% to 37.6% — the IGP-M was inflating old sales
+(a 2014 sale ×2.27 versus ×1.57) and making ads look cheaper than they are.
 
 ### Nobody publishes the venal value per property
 

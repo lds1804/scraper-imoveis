@@ -40,7 +40,11 @@ from cacaimoveis import indices  # noqa: E402
 fabrica.criar(os.environ["CACA_DB"])
 # índices econômicos (BCB, dado público) num arquivo versionado: os testes
 # não dependem de rede nem do `dados/` local
-indices.CACHE = os.path.join(FIXTURES, "indices.json")
+# o cache de índices vai para uma CÓPIA e não vence nunca: sem isso, o TTL de
+# `indices.carregar` baixava os índices da rede e reescrevia a fixture versionada
+shutil.copy(os.path.join(FIXTURES, "indices.json"), os.path.join(_TMP, "indices.json"))
+indices.CACHE = os.path.join(_TMP, "indices.json")
+indices.TTL_DIAS = 10**9
 
 
 def contem(trecho, texto) -> bool:

@@ -222,7 +222,7 @@
                 <b>constr.</b> é a área construída e <b>terreno</b> é a área do
                 lote, ambas do cadastro fiscal da prefeitura. O R$/m² usa só a
                 área construída, para ser comparável entre casas.
-                Valores corrigidos pelo <b>IGP-M</b> (FGV) para o mês atual, e
+                Valores corrigidos pelo <b>{{ {'fipezap': 'FipeZap SP', 'igpm': 'IGP-M', 'ipca': 'IPCA'}.get(c.indice_reajuste, 'índice') }}</b> para o mês atual, e
                 só entram vendas dos últimos 10 anos — sem o corte de época,
                 uma venda de 2007 entraria na mesma média de uma de 2020 e
                 rebaixaria a referência.
