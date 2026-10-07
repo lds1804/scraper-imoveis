@@ -251,3 +251,5 @@ body {
   width: 100%; height: 240px; border: 0; border-radius: var(--r);
   background: var(--accent-claro); margin-bottom: 10px;
 }
+.link-novos { color: var(--quente); font-weight: 700; text-decoration: none; }
+.link-novos:hover { text-decoration: underline; }

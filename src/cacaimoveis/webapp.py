@@ -17,6 +17,7 @@ from flask import (
     Flask,
     abort,
     g,
+    jsonify,
     render_template,
     request,
     send_from_directory,
@@ -646,6 +647,20 @@ def index():
     chips = _chips_ativos(f.como_dict())
     ativos = bool(chips)
 
+    # quantos novos há dentro dos filtros atuais, e o link para vê-los. Os
+    # novos são poucos e não sobem na ordem por encaixe, então sem este atalho
+    # o selo "Novo" some na paginação.
+    n_novos = url_novos = None
+    if not f.so_novos:
+        sql_n, params_n = flt.montar_consulta(
+            conn, dataclasses.replace(f, so_novos=True), tem_comp, tem_dup)
+        n_novos = conn.execute(f"SELECT COUNT(*) FROM ({sql_n})", params_n).fetchone()[0]
+        if n_novos:
+            q = request.args.to_dict(flat=False)
+            q.pop("pagina", None)
+            q["so_novos"] = ["1"]
+            url_novos = url_for("index", **q)
+
     # A contagem exibida é o TOTAL filtrado, não o número de cards na página —
     # senão o usuário leria "60 imóveis" tendo 2.127 no resultado.
     return render_template(
@@ -664,6 +679,8 @@ def index():
         tem_comp=tem_comp,
         tem_dup=tem_dup,
         total=total_filtrado,
+        n_novos=n_novos,
+        url_novos=url_novos,
     )
 
 
@@ -777,6 +794,29 @@ def detalhe(anuncio_url: str):
     d["fotos_web"] = [url_for("foto", caminho=f) for f in d["fotos"]]
     d["slug_fotos"] = _slug_fotos(anuncio_url)
     return render_template("detalhe.html", a=d, url_voltar=_url_voltar())
+
+
+@app.route("/geo/<path:anuncio_url>")
+def geo(anuncio_url: str):
+    """Coordenadas do imóvel (JSON), buscadas no Nominatim na 1ª vez.
+
+    Rota separada para a página abrir na hora: a busca respeita 1 consulta por
+    segundo e pode levar alguns segundos; o JS troca o mapa quando ela chega.
+    """
+    from cacaimoveis import geocode
+
+    a = _conn().execute(
+        "SELECT rua, bairro, cep FROM anuncios WHERE url = ?", (anuncio_url,)).fetchone()
+    if a is None:
+        abort(404)
+    # conexão própria: `_conn()` é uma por requisição e a gravação do cache
+    # não deve disputar com ela
+    escrita = sqlite3.connect(config.DB_PATH, timeout=30)
+    try:
+        achado = geocode.obter(escrita, a["rua"] or "", a["bairro"] or "", a["cep"] or "")
+    finally:
+        escrita.close()
+    return jsonify(achado)
 
 
 @app.route("/fotos/<path:caminho>")

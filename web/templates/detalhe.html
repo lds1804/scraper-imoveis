@@ -603,17 +603,25 @@
          rua, e sem rua só no bairro. #}
       {% if a.mapa %}
         {% set q = a.mapa.texto | urlencode %}
-        <div class="bloco">
+        <div class="bloco" id="bloco-mapa" data-geo="{{ url_for('geo', anuncio_url=a.url) }}"
+             data-so-bairro="{{ 1 if a.mapa.so_bairro else 0 }}">
           <h2 class="bloco-titulo">{{ ic.icone('casa') }} Localização
-            {% if not a.mapa.preciso %}<span class="fraco">(aproximada: {{ 'só o bairro' if a.mapa.so_bairro else 'a rua, sem número' }})</span>{% endif %}
+            <span class="fraco" id="mapa-precisao">{% if not a.mapa.preciso %}(aproximada: {{ 'só o bairro' if a.mapa.so_bairro else 'a rua, sem número' }}){% endif %}</span>
           </h2>
-          <iframe class="mapa" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
+          <iframe class="mapa" id="mapa-frame" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
                   title="Mapa do imóvel"
                   src="https://maps.google.com/maps?q={{ q }}&z={{ 17 if a.mapa.preciso else (15 if not a.mapa.so_bairro else 14) }}&hl=pt-BR&output=embed"></iframe>
+          {# Street View: só aparece quando as coordenadas chegam (rota /geo) #}
+          <div id="sv-bloco" hidden>
+            <iframe class="mapa" id="sv-frame" loading="lazy" title="Street View do imóvel"></iframe>
+          </div>
           <div class="sql-links">
-            <a class="botao botao-2" target="_blank" rel="noopener"
+            <a class="botao botao-2" id="link-maps" target="_blank" rel="noopener"
                href="https://www.google.com/maps/search/?api=1&query={{ q }}">
-              Abrir no Google Maps (Street View)
+              Abrir no Google Maps
+            </a>
+            <a class="botao botao-2" id="link-sv" target="_blank" rel="noopener" hidden>
+              Abrir o Street View
             </a>
           </div>
         </div>
@@ -671,6 +679,29 @@
         if (aviso) { aviso.hidden = false; setTimeout(() => { aviso.hidden = true; }, 2500); }
       });
     });
+  </script>
+
+  <script>
+    // coordenadas do imóvel (podem demorar alguns segundos na 1ª visita):
+    // quando chegam, o mapa passa a apontar para elas e o Street View aparece
+    (function () {
+      const bloco = document.getElementById("bloco-mapa");
+      if (!bloco) return;
+      fetch(bloco.dataset.geo).then((r) => r.json()).then((g) => {
+        if (!g || g.lat == null) return;
+        const ll = g.lat + "," + g.lon;
+        document.getElementById("mapa-frame").src =
+          "https://maps.google.com/maps?q=" + ll + "&z=18&hl=pt-BR&output=embed";
+        document.getElementById("sv-frame").src =
+          "https://maps.google.com/maps?layer=c&cbll=" + ll + "&cbp=12,0,0,0,0&source=embed&output=svembed";
+        document.getElementById("sv-bloco").hidden = false;
+        const sv = document.getElementById("link-sv");
+        sv.href = "https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=" + ll;
+        sv.hidden = false;
+        document.getElementById("mapa-precisao").textContent = g.precisao === "casa"
+          ? "" : "(pino na rua: o número não foi localizado)";
+      }).catch(() => {});
+    })();
   </script>
 
   {% if a.fotos and a.fotos | length > 1 %}

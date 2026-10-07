@@ -220,6 +220,9 @@
       {% else %}
         <b>{{ total }}</b> imóveis no total
       {% endif %}
+      {% if url_novos %}
+        · <a class="link-novos" href="{{ url_novos }}">ver os {{ n_novos }} novo{% if n_novos != 1 %}s{% endif %}</a>
+      {% endif %}
       {% if n_paginas > 1 %}
         <span class="paginacao-info">
           · página {{ pagina }} de {{ n_paginas }}
