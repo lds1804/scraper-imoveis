@@ -120,6 +120,7 @@
     </div>
 
     <div class="analises">
+      <div class="cartoes">
       {% if a.comp and a.comp.razao %}
         {# Comparação com o preço praticado nas vendas reais (ITBI). As
            transações são listadas embaixo de propósito: o usuário pediu para
@@ -515,6 +516,8 @@
           {% endif %}
         </div>
       {% endif %}
+
+      </div>
 
       {# Mapa pelo texto do endereço (o banco não guarda coordenadas). O
          embed sem chave do Google resolve o texto; sem número o pino cai na

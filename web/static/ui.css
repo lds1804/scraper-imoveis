@@ -302,3 +302,15 @@ body {
 .analises > .bloco { min-width: 0; }
 .comp-transacoes { overflow-x: auto; }
 .ofertas-tabela { display: block; overflow-x: auto; max-width: 100%; }
+
+/* cartões da mesma linha com a mesma altura */
+.analises { align-items: stretch; }
+
+/* os seis cartões menores: mesma altura em TODAS as linhas; mapa, ofertas e
+   descrição (largos) ficam fora e têm a altura do próprio conteúdo */
+.analises { display: flex; flex-direction: column; gap: 18px; }
+.cartoes {
+  display: grid; gap: 18px; grid-auto-rows: 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
+}
+.cartoes > .bloco { min-width: 0; }
