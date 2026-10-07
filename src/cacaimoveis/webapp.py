@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import re
 import sqlite3
 from types import SimpleNamespace
 
@@ -47,6 +48,26 @@ def _injetar_icones():
         # montar sem repetir a lista no template (fonte única de verdade)
         "PISO_ROTULO": PISO_ROTULO,
         "PISO_OPCOES": PISO_OPCOES,
+    }
+
+
+def _local_do_mapa(a: dict) -> dict | None:
+    """Texto de busca para o mapa e se ele aponta para a CASA ou só para a rua.
+
+    Os anúncios não têm coordenadas: o Google resolve o texto. Com número, o
+    pino cai no imóvel; sem número, na rua (ou só no bairro) — o template avisa.
+    """
+    rua = re.sub(r"[\s,]+$", "", (a.get("rua") or "").strip())
+    bairro = (a.get("bairro") or "").strip()
+    if not rua and not bairro:
+        return None
+    partes = [rua or bairro, bairro if rua else "", "São Paulo, SP", a.get("cep") or ""]
+    texto = ", ".join(p for p in partes if p)
+    return {
+        "texto": texto,
+        "endereco": rua,
+        "preciso": bool(re.search(r"\d", rua)),
+        "so_bairro": not rua,
     }
 
 
@@ -750,6 +771,7 @@ def detalhe(anuncio_url: str):
         f"SELECT {flt.sql_novo()} FROM anuncios a "
         "LEFT JOIN vistos v ON v.url = a.url WHERE a.url = ?", (anuncio_url,),
     ).fetchone()[0]) if flt._tem_vistos(conn) else False
+    d["mapa"] = _local_do_mapa(d)
     d["fotos"] = _fotos_locais(anuncio_url)
     # URLs já prontas (o JS do carrossel usa direto, sem montar caminho)
     d["fotos_web"] = [url_for("foto", caminho=f) for f in d["fotos"]]

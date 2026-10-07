@@ -556,35 +556,66 @@
 
 
       {# Conferir o valor venal na prefeitura. O SQL (setor-quadra-lote) só é
-         conhecido quando o anúncio casou com UM lote do cadastro; nos casos
-         por rua/CEP não há como saber qual é o imóvel. Os sites da prefeitura
-         não aceitam o SQL pela URL, então o botão COPIA o SQL e abre o site:
-         é só colar no campo. #}
-      {% if a.iptu and a.iptu.sql %}
-        {% set sql_fmt = a.iptu.sql | sql_mascara %}
-        <div class="bloco">
-          <h2 class="bloco-titulo">{{ ic.icone('banco') }} Conferir na prefeitura</h2>
+         conhecido quando o anúncio casou com UM lote do cadastro (~22% dos
+         casos); nos demais o bloco aparece mesmo assim, com o endereço para
+         buscar na mão. Os sites da prefeitura não aceitam o SQL pela URL, então
+         o clique COPIA o texto e abre o site: é só colar no campo. #}
+      {% set sql_fmt = (a.iptu.sql | sql_mascara) if (a.iptu and a.iptu.sql) else '' %}
+      {% set endereco_busca = (a.mapa.endereco if a.mapa else '') %}
+      {% set copiar = sql_fmt or endereco_busca %}
+      <div class="bloco">
+        <h2 class="bloco-titulo">{{ ic.icone('banco') }} Conferir na prefeitura</h2>
+        {% if sql_fmt %}
           <p class="sql-linha">
-            SQL do imóvel <b class="sql-valor" id="sql-valor">{{ sql_fmt }}</b>
+            SQL do imóvel <b class="sql-valor">{{ sql_fmt }}</b>
             <button type="button" class="sql-copiar" data-copiar="{{ sql_fmt }}">Copiar</button>
           </p>
+        {% else %}
+          <p class="sql-linha">
+            <b>SQL não identificado:</b> o anúncio não bate com um único lote do
+            cadastro{% if endereco_busca %}; busque pelo endereço
+            <b class="sql-valor">{{ endereco_busca }}</b>
+            <button type="button" class="sql-copiar" data-copiar="{{ endereco_busca }}">Copiar</button>{% else %}
+            e não informa a rua{% endif %}.
+          </p>
+        {% endif %}
+        <div class="sql-links">
+          <a class="botao botao-2" target="_blank" rel="noopener"
+             {% if copiar %}data-copiar="{{ copiar }}"{% endif %}
+             href="https://itbi.prefeitura.sp.gov.br/valorreferencia/">
+            Valor venal de referência (ITBI)
+          </a>
+          <a class="botao botao-2" target="_blank" rel="noopener"
+             {% if copiar %}data-copiar="{{ copiar }}"{% endif %}
+             href="https://geosampa.prefeitura.sp.gov.br/">
+            Abrir no GeoSampa
+          </a>
+        </div>
+        <p class="bloco-nota">
+          O {{ 'SQL' if sql_fmt else 'endereço' }} é copiado ao clicar: cole no
+          campo de busca do site.
+          <span class="sql-aviso" id="sql-aviso" hidden>Copiado.</span>
+        </p>
+      </div>
+
+      {# Mapa pelo texto do endereço (o banco não guarda coordenadas). O
+         embed sem chave do Google resolve o texto; sem número o pino cai na
+         rua, e sem rua só no bairro. #}
+      {% if a.mapa %}
+        {% set q = a.mapa.texto | urlencode %}
+        <div class="bloco">
+          <h2 class="bloco-titulo">{{ ic.icone('casa') }} Localização
+            {% if not a.mapa.preciso %}<span class="fraco">(aproximada: {{ 'só o bairro' if a.mapa.so_bairro else 'a rua, sem número' }})</span>{% endif %}
+          </h2>
+          <iframe class="mapa" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
+                  title="Mapa do imóvel"
+                  src="https://maps.google.com/maps?q={{ q }}&z={{ 17 if a.mapa.preciso else (15 if not a.mapa.so_bairro else 14) }}&hl=pt-BR&output=embed"></iframe>
           <div class="sql-links">
             <a class="botao botao-2" target="_blank" rel="noopener"
-               data-copiar="{{ sql_fmt }}"
-               href="https://itbi.prefeitura.sp.gov.br/valorreferencia/">
-              Valor venal de referência (ITBI)
-            </a>
-            <a class="botao botao-2" target="_blank" rel="noopener"
-               data-copiar="{{ sql_fmt }}"
-               href="https://geosampa.prefeitura.sp.gov.br/">
-              Abrir no GeoSampa
+               href="https://www.google.com/maps/search/?api=1&query={{ q }}">
+              Abrir no Google Maps (Street View)
             </a>
           </div>
-          <p class="bloco-nota">
-            O SQL é copiado ao clicar: cole no campo de busca do site
-            (no GeoSampa, em "Buscar" &rarr; "SQL").
-            <span class="sql-aviso" id="sql-aviso" hidden>SQL copiado.</span>
-          </p>
         </div>
       {% endif %}
 
