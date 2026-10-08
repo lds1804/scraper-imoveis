@@ -369,7 +369,9 @@ class DB:
                 foto_resumo         = ?,
                 foto_confianca      = ?,
                 foto_analisada_em   = ?,
-                foto_modelo         = ?
+                foto_modelo         = ?,
+                foto_numero_casa    = ?,
+                foto_numero_certeza = ?
             WHERE url = ?
             """,
             (
@@ -396,6 +398,8 @@ class DB:
                 a.confianca or "",
                 datetime.now(UTC).isoformat(timespec="seconds"),
                 getattr(a, "modelo", "") or None,
+                getattr(a, "numero_casa", "") or None,
+                getattr(a, "numero_casa_certeza", "") or None,
                 a.url,
             ),
         )
@@ -419,6 +423,7 @@ class DB:
         "foto_reformado", "foto_planta_baixa", "foto_fachada", "foto_piso",
         "foto_comodos", "foto_extras", "foto_problemas", "foto_resumo",
         "foto_confianca", "foto_analisada_em", "foto_modelo",
+        "foto_numero_casa", "foto_numero_certeza",
     )
 
     def herdar_analise_visual(self) -> int:

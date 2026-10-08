@@ -213,6 +213,16 @@ def _m003_modelo_da_visao(conn: sqlite3.Connection) -> None:
     _garantir_tabela(conn, "anuncios", [("foto_modelo", "TEXT")])
 
 
+def _m009_numero_da_casa(conn: sqlite3.Connection) -> None:
+    """Número de porta lido nas fotos pela análise visual (ver visao.py).
+
+    `foto_numero_certeza` é "alta" | "media" | "baixa". Análises anteriores a
+    2026-10-07 ficam com os dois campos vazios (não foram refeitas).
+    """
+    _garantir_tabela(conn, "anuncios", [("foto_numero_casa", "TEXT"),
+                                        ("foto_numero_certeza", "TEXT")])
+
+
 def _m004_meta(conn: sqlite3.Connection) -> None:
     """Pares chave/valor sobre o estado dos dados (ex.: versão da chave de
     rua usada no ITBI), para um recálculo saber quando é necessário."""
@@ -295,6 +305,7 @@ MIGRACOES: list[Callable[[sqlite3.Connection], None]] = [
     _m006_removido,
     _m007_vistos,
     _m008_foto_hash,
+    _m009_numero_da_casa,
 ]
 
 

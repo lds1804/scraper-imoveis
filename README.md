@@ -439,6 +439,31 @@ Every agency uploads its own copy to the CDN, so folder and filename differ.
 Verified: 474 unique photo IDs, 0 repeats. Perceptual hashing (pHash) finds
 them instead — 9 groups.
 
+### House number from the photos (rare, deliberately)
+
+Since 2026-10-07 the vision prompt also asks for `numero_casa`: the street number
+when it is **legible** on the facade, gate, wall or mailbox, plus a certainty
+(`alta`/`media`/`baixa`). Most listing photos never show it, so expect a few
+percent of ads at best; the end-of-run summary prints how many were read.
+
+- **Why:** the number is what picks the exact lot in the tax register (venal
+  value, official area, SQL) and the right pin on the map. Only ~22% of ads
+  publish it in the text; this is a second, independent source.
+- **What is NOT a house number** (the model confuses these, and the prompt says
+  so): the phone/CRECI on a "vende-se" sign, CEP, price, m², parking-space
+  number, licence plate, year. `visao.numero_da_casa` additionally rejects
+  anything that is not 1–5 digits plus an optional letter.
+- **Stored in** `anuncios.foto_numero_casa` / `foto_numero_certeza`, inherited by
+  duplicate listings of the same property. **It never rewrites the ad's address:**
+  it is shown on the property page as something to verify.
+- **Existing analyses were not redone** (~4,500 ads; a full vision pass costs
+  money). They keep the field empty. To fill them in later, `caca-visao
+  --refazer` re-runs everything; a cheaper targeted pass (facade photo only) is
+  the better option.
+- **Before trusting it for matching:** require `alta`, and compare with the
+  street's lots in `lote_geo` (a number that does not exist on that street is a
+  misread).
+
 ### Yard floor is a separate field for a reason
 
 The original prompt asked for `quintal_terra` = "bare dirt" while also saying

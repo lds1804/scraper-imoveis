@@ -43,6 +43,15 @@ medidas de valor: região fina **39,5% → 82,7%**; fallback "cidade"
 > trariam dado novo) porque o ZAP já foi coletado por ela. E a razão venal por
 > rua não melhora a estimativa (26,3% vs 26,6% — empate técnico).
 
+### 2-B. Número da casa lido nas fotos — FEITO ✅ (só para as próximas análises)
+O prompt da visão (`visao.py`) agora pede `numero_casa` e `numero_casa_certeza`.
+É **raro** (poucos por cento dos anúncios) e as ~4.500 análises anteriores **não
+foram refeitas**. Fica em `anuncios.foto_numero_casa` / `foto_numero_certeza`, é
+herdado pelas cópias e aparece na página do imóvel. **Não altera o endereço.**
+Pendente (opcional): usar o número com certeza `alta` para casar o lote exato,
+conferindo antes se ele existe na rua (`lote_geo`). Ver README, "House number
+from the photos".
+
 ### 3. Decidir os pesos da nota de encaixe (JEV)
 O cálculo é trivial depois que os pesos existirem. As features já estão
 calculadas (área, quartos, quintal, conservação, preço vs mercado). A decisão

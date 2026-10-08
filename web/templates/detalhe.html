@@ -327,7 +327,9 @@
          buscar na mão. Os sites da prefeitura não aceitam o SQL pela URL, então
          o clique COPIA o texto e abre o site: é só colar no campo. #}
       {% set sql_fmt = (a.iptu.sql | sql_mascara) if (a.iptu and a.iptu.sql) else '' %}
-      {% set endereco_busca = (a.mapa.endereco if a.mapa else '') %}
+      {# número lido nas fotos (raro): só ajuda a buscar quando o anúncio não traz o número #}
+      {% set num_foto = a.foto_numero_casa if (a.foto_numero_casa and a.mapa and not a.mapa.preciso) else '' %}
+      {% set endereco_busca = ((a.mapa.endereco ~ ', ' ~ num_foto) if num_foto else a.mapa.endereco) if a.mapa else '' %}
       {% set copiar = sql_fmt or endereco_busca %}
       <div class="bloco" id="s-prefeitura">
         <h2 class="bloco-titulo">{{ ic.icone('banco') }} Conferir na prefeitura</h2>
@@ -357,6 +359,16 @@
             Abrir no GeoSampa
           </a>
         </div>
+        {% if num_foto %}
+          <p class="bloco-nota">
+            O número <b>{{ num_foto }}</b> foi lido nas fotos (certeza {{ a.foto_numero_certeza or 'baixa' }}),
+            não está no anúncio: confira antes de confiar.
+          </p>
+        {% elif a.foto_numero_casa %}
+          <p class="bloco-nota">
+            Número lido nas fotos: <b>{{ a.foto_numero_casa }}</b> (certeza {{ a.foto_numero_certeza or 'baixa' }}).
+          </p>
+        {% endif %}
         <p class="bloco-nota">
           O {{ 'SQL' if sql_fmt else 'endereço' }} é copiado ao clicar: cole no
           campo de busca do site.

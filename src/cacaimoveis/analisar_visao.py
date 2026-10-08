@@ -5,6 +5,15 @@ grava, no banco, parâmetros que o texto do anúncio quase nunca informa:
 quintal com terra, árvores, se é cimentado, iluminação, arejamento, cuidado,
 janelas grandes, fachada, piso, cômodos visíveis, extras e problemas.
 
+NÚMERO DA CASA (desde 2026-10-07): o prompt também pede o número de porta, quando
+ele aparece legível na fachada, no portão, no muro ou na caixa de correio. É raro,
+então o relatório do fim da rodada diz quantos foram lidos e com que certeza
+("alta" | "media" | "baixa"). Vai para `anuncios.foto_numero_casa` e
+`foto_numero_certeza` e é herdado pelas cópias do mesmo imóvel. As análises
+anteriores a essa data NÃO foram refeitas e ficam sem o campo. O número lido NÃO
+altera o endereço do anúncio: é um dado a conferir (aparece na página do imóvel).
+Detalhes e como usar: seção "Número da casa nas fotos" do README e `visao.py`.
+
 Provedores (`--provedor`, ou `CACA_VISAO`):
     claude   (padrão) o Claude Code CLI logado nesta máquina; sem custo por
              token. Faça login uma vez rodando o `claude` num terminal.
@@ -40,7 +49,10 @@ log = logs.obter(__name__)
 # Custo em tokens, MEDIDO na API (2026-10-03) — não estimado.
 # ---------------------------------------------------------------------------
 TOK_FOTO = {"low": 203, "original": 458}
-TOK_PROMPT = 907
+# 907 foi medido com o prompt de 2.870 caracteres. Em 2026-10-07 o prompt passou
+# a pedir o número da casa (3.673 caracteres, +28%): 1.161 é a ESTIMATIVA
+# proporcional, a confirmar na próxima rodada paga (`gasto` real da API).
+TOK_PROMPT = 1161
 TOK_SAIDA = 265
 # Preços `deepseek-flash` em US$/1M. Off-peak é metade do peak; usamos o
 # OFF-PEAK como referência para o TETO (é o que a automação noturna paga) e
@@ -211,7 +223,8 @@ def main() -> int:
             "foto_cuidado = NULL, foto_janelas_grandes = NULL, foto_reformado = NULL, "
             "foto_planta_baixa = NULL, foto_fachada = NULL, foto_piso = NULL, "
             "foto_comodos = NULL, foto_extras = NULL, foto_problemas = NULL, "
-            "foto_resumo = NULL, foto_confianca = NULL, foto_analisada_em = NULL"
+            "foto_resumo = NULL, foto_confianca = NULL, foto_analisada_em = NULL, "
+            "foto_numero_casa = NULL, foto_numero_certeza = NULL"
         )
         db.conn.commit()
 
@@ -237,6 +250,10 @@ def main() -> int:
 
     if args.limite:
         pendentes = pendentes[: args.limite]
+
+    if pendentes:
+        print("[prompt] além do quintal e da conservação, lê o NÚMERO DA CASA quando "
+              "aparece legível nas fotos (raro; sai no resumo, com a certeza).")
 
     # -----------------------------------------------------------------------
     # Economia de tokens: anúncios DUPLICADOS (mesmo imóvel, outra imobiliária)
@@ -343,6 +360,7 @@ def main() -> int:
 
     n_ok = n_falha = falhas_seguidas = 0
     destaques_quintal = 0
+    numeros_lidos: list[tuple[str, str]] = []     # (número, certeza) desta rodada
     reaproveitados = 0
     gasto_brl = 0.0     # acumulado em tempo real, pelo que foi REALMENTE enviado
     t0 = time.time()
@@ -430,6 +448,10 @@ def main() -> int:
         """Atualiza contadores e, se houver algo marcante, escreve na tela."""
         nonlocal n_ok, n_falha, destaques_quintal, falhas_seguidas
         resultados[row["url"]] = a
+        if a.ok and a.numero_casa:
+            numeros_lidos.append((a.numero_casa, a.numero_casa_certeza))
+            barra.escrever(f"  [número]   {(row['titulo'] or '')[:38]:40s} "
+                           f"{a.numero_casa} ({a.numero_casa_certeza})")
         if a.ok:
             falhas_seguidas = 0
         elif a.transitorio:
@@ -542,6 +564,12 @@ def main() -> int:
     print(f"Falhas                 : {n_falha}")
     print(f"Reaproveitados (dup)   : {reaproveitados}")
     print(f"Com quintal de terra   : {destaques_quintal}")
+    # Número de porta lido nas fotos (raro; ver visao.py). Só conta quem foi
+    # analisado de fato nesta rodada, não as cópias que herdaram o resultado.
+    por_certeza = {c: sum(1 for _, x in numeros_lidos if x == c) for c in ("alta", "media", "baixa")}
+    print(f"Número da casa lido    : {len(numeros_lidos)}"
+          + (f"  (alta {por_certeza['alta']}, média {por_certeza['media']}, "
+             f"baixa {por_certeza['baixa']})" if numeros_lidos else ""))
     print(f"Tempo                  : {decorrido:.0f}s")
     if deepseek:
         print(f"Gasto (no horário)     : R$ {gasto_brl:.2f}"

@@ -163,6 +163,19 @@ def _preparar_imagem(caminho: str, lado_max: int) -> str | None:
 #  - problemas: obra/mofo/abandono — ninguém escreve isso no anúncio
 #  - extras: amenidades que valorizam o imóvel
 #
+# NÚMERO DA CASA (numero_casa / numero_casa_certeza), pedido desde 2026-10-07:
+# o número de porta que aparece na fachada, no portão, no muro, na caixa de
+# correio ou no interfone. É RARO (a maioria das fotos de anúncio não mostra a
+# fachada com número legível; a expectativa é de poucos por cento dos anúncios),
+# mas quando aparece resolve o que o texto do anúncio não diz: o LOTE exato no
+# cadastro da prefeitura (venal, área, SQL) e o ponto certo no mapa. Só vale
+# para análises FEITAS DEPOIS dessa data: as ~4.500 anteriores não foram
+# refeitas (custaria uma rodada inteira de visão) e ficam com o campo vazio.
+# O que NÃO é número de casa — e o modelo costuma confundir — está nas regras
+# do prompt: telefone e CRECI de placa "vende-se", CEP, preço, m², vaga, placa
+# de carro. Ver `numero_da_casa` em AnaliseFoto e a seção "Número da casa nas
+# fotos" do README.
+#
 # NOTA sobre o piso do quintal: a versão anterior deste prompt pedia
 # "quintal_terra" e dizia ao mesmo tempo "chão de TERRA BATIDA" e "grama
 # aparada conta como SIM" — contradição que fez todo quintal gramado ser
@@ -194,6 +207,9 @@ blocos de código markdown. Use exatamente estas chaves:
 "quintal_grande", "garagem_coberta", "muro_alto", "portao_automatico"],
   "problemas": ["mofo", "obra_inacabada", "abandono", "infiltracao", "entulho"],
   "tem_planta_baixa": "sim" | "nao",
+  "numero_casa": "só os algarismos (e uma letra, se houver) do número de porta \
+visível, ou null",
+  "numero_casa_certeza": "alta" | "media" | "baixa" | null,
   "resumo": "uma frase curta e objetiva sobre o imóvel",
   "confianca": "alta" | "media" | "baixa"
 }}
@@ -223,6 +239,16 @@ grande angular podem exagerar a sensação de amplitude — seja criterioso.
 - Em "extras" e "problemas", liste APENAS o que realmente aparece. Lista vazia \
 é uma resposta válida e comum.
 - "comodos" em português, minúsculas, sem acento.
+- "numero_casa" = o número de PORTA do imóvel, se estiver LEGÍVEL em placa, \
+portão, muro, fachada, caixa de correio ou interfone (ex.: "335", "12A"). \
+Quase sempre será null: use null quando nenhuma foto mostrar um número de \
+porta claro. NÃO é número de casa: telefone ou CRECI de placa "vende-se"/\
+"aluga-se", CEP, preço, metragem, número de vaga, placa de veículo, ano, \
+número de apartamento ou de lote em planta. Havendo dois números diferentes \
+na fachada, devolva null. "numero_casa_certeza": "alta" só se os algarismos \
+estão nítidos e inequívocos; "media" se dá para ler mas com algum risco de \
+erro; "baixa" se está borrado, parcial ou muito pequeno. NÃO adivinhe \
+algarismos.
 """
 
 
@@ -491,6 +517,36 @@ def _lista(valor: Any) -> list[str]:
     return [str(x).strip().lower() for x in valor if str(x).strip()]
 
 
+def numero_da_casa(valor) -> str:
+    """Valida o número de porta devolvido pelo modelo. Vazio se não for um.
+
+    Aceita 1 a 5 algarismos, sem zero à esquerda inútil e com uma letra
+    opcional ('335', '12A', '1500'). Recusa o que o modelo costuma devolver no
+    lugar de um número de porta: 'null', 'nenhum', texto, telefone (8+
+    algarismos), CEP, ano... Melhor perder um número do que gravar um errado:
+    ele serve para casar o lote no cadastro.
+    """
+    if valor is None or isinstance(valor, bool):
+        return ""
+    texto = str(valor).strip().upper().replace(" ", "")
+    m = re.fullmatch(r"(\d{1,5})([A-Z]?)", texto)
+    if not m or int(m.group(1)) == 0:
+        return ""
+    return str(int(m.group(1))) + m.group(2)
+
+
+def _certeza_do_numero(numero, certeza) -> str:
+    """'alta' | 'media' | 'baixa' para o número lido; vazio se não há número.
+
+    Número sem certeza informada conta como 'baixa': quem usar o número deve
+    exigir 'alta' (ou conferir) e não pode tratar a ausência como confiança.
+    """
+    if not numero_da_casa(numero):
+        return ""
+    c = str(certeza or "").strip().lower().replace("é", "e")
+    return c if c in ("alta", "media", "baixa") else "baixa"
+
+
 @dataclass
 class AnaliseFoto:
     """Resultado da análise visual de um anúncio."""
@@ -524,6 +580,10 @@ class AnaliseFoto:
     extras: list[str] = field(default_factory=list)
     problemas: list[str] = field(default_factory=list)
     tem_planta_baixa: bool | None = None
+    # número de porta lido na fachada (só dígitos + letra opcional) e o quanto o
+    # modelo diz ter certeza: "alta" | "media" | "baixa". Vazio quando não houve.
+    numero_casa: str = ""
+    numero_casa_certeza: str = ""
     bruto: dict = field(default_factory=dict)
     # quem analisou ("claude:sonnet", "deepseek-flash"): permite comparar
     # provedores e refazer só o que veio de um deles
@@ -563,6 +623,9 @@ class AnaliseFoto:
             extras=_lista(dados.get("extras")),
             problemas=_lista(dados.get("problemas")),
             tem_planta_baixa=_sim_nao(dados.get("tem_planta_baixa")),
+            numero_casa=numero_da_casa(dados.get("numero_casa")),
+            numero_casa_certeza=_certeza_do_numero(dados.get("numero_casa"),
+                                                   dados.get("numero_casa_certeza")),
             bruto=dados,
         )
 

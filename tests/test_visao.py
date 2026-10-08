@@ -275,3 +275,68 @@ def test_anuncio_removido_nao_serve_de_fonte(tmp_path):
     db.conn.commit()
     assert db.herdar_analise_visual() == 0
     db.close()
+
+
+# ---------------------------------------------------------------------------
+# Número da casa lido nas fotos (raro; ver visao.py)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("valor, esperado", [
+    ("335", "335"), (335, "335"), (" 12 a ", "12A"), ("0123", "123"), ("1500", "1500"),
+    # o que NÃO é número de porta
+    (None, ""), ("", ""), ("null", ""), ("nenhum", ""), ("0", ""), (True, ""),
+    ("11987654321", ""),            # telefone de placa "vende-se"
+    ("05124-010", ""),              # CEP
+    ("R$ 750.000", ""), ("200 m2", ""), ("335 e 337", ""),
+])
+def test_numero_da_casa_so_aceita_numero_de_porta(valor, esperado):
+    assert visao.numero_da_casa(valor) == esperado
+
+
+def test_json_com_numero_e_certeza():
+    a = visao.AnaliseFoto.do_json("u", 5, {"numero_casa": "523", "numero_casa_certeza": "Alta"})
+    assert (a.numero_casa, a.numero_casa_certeza) == ("523", "alta")
+
+
+def test_numero_sem_certeza_informada_conta_como_baixa():
+    a = visao.AnaliseFoto.do_json("u", 5, {"numero_casa": "523"})
+    assert a.numero_casa_certeza == "baixa"
+    a = visao.AnaliseFoto.do_json("u", 5, {"numero_casa": "523", "numero_casa_certeza": "talvez"})
+    assert a.numero_casa_certeza == "baixa"
+
+
+def test_sem_numero_nao_ha_certeza():
+    for dados in ({}, {"numero_casa": None, "numero_casa_certeza": "alta"},
+                  {"numero_casa": "11987654321", "numero_casa_certeza": "alta"}):
+        a = visao.AnaliseFoto.do_json("u", 5, dados)
+        assert (a.numero_casa, a.numero_casa_certeza) == ("", "")
+
+
+def test_prompt_pede_o_numero_e_avisa_do_que_nao_e_numero_de_casa():
+    p = visao.PROMPT.format(n=3)
+    assert '"numero_casa"' in p and '"numero_casa_certeza"' in p
+    for armadilha in ("telefone", "CRECI", "CEP", "vaga", "NÃO adivinhe"):
+        assert armadilha in p
+
+
+def test_numero_e_gravado_e_herdado_pelas_copias(tmp_path):
+    db = _db_com_grupo(tmp_path)
+    a = visao.AnaliseFoto.do_json("u1", 3, {"numero_casa": "523", "numero_casa_certeza": "alta"})
+    db.salvar_analise_visual(a)
+    r = db.conn.execute("SELECT foto_numero_casa, foto_numero_certeza FROM anuncios "
+                        "WHERE url='u1'").fetchone()
+    assert (r[0], r[1]) == ("523", "alta")
+    db.herdar_analise_visual()
+    for u in ("u2", "u3"):
+        r = db.conn.execute("SELECT foto_numero_casa, foto_numero_certeza FROM anuncios "
+                            "WHERE url=?", (u,)).fetchone()
+        assert (r[0], r[1]) == ("523", "alta")
+    db.close()
+
+
+def test_analise_sem_numero_grava_nulo(tmp_path):
+    db = _db_com_grupo(tmp_path)
+    db.salvar_analise_visual(visao.AnaliseFoto.do_json("u1", 3, {"cuidado_nota": 4}))
+    r = db.conn.execute("SELECT foto_numero_casa, foto_numero_certeza FROM anuncios "
+                        "WHERE url='u1'").fetchone()
+    assert (r[0], r[1]) == (None, None)
+    db.close()

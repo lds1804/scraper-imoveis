@@ -53,8 +53,14 @@ def test_tokens_por_foto_medidos():
     assert 0.4 < av._custo_brl(1000, 10, "low") / av._custo_brl(1000, 10, "original") < 0.5
 
 
-def test_estimativa_confere_com_a_medicao():
-    """Medido (medir_custo_analise.py): 1.602 chamadas, 22.165 fotos."""
+def test_estimativa_confere_com_a_medicao(monkeypatch):
+    """Medido (medir_custo_analise.py): 1.602 chamadas, 22.165 fotos.
+
+    A medição foi feita com o prompt de 907 tokens. Desde 2026-10-07 o prompt
+    pede também o número da casa e `TOK_PROMPT` é uma estimativa maior (1.161);
+    para continuar conferindo a medição, o teste volta ao valor medido.
+    """
+    monkeypatch.setattr(av, "TOK_PROMPT", 907)
     assert av._custo_brl(22165, 1602, "original") == pytest.approx(10.82, abs=0.05)
     assert av._custo_brl(22165, 1602, "original", peak=True) == pytest.approx(21.63, abs=0.05)
 
