@@ -376,6 +376,14 @@
                       {% if a.iptu.pct_do_preco %}<span class="pct">{{ a.iptu.pct_do_preco | round | int }}% do preço</span>{% endif %}
                     </dd>
                   </div>
+                  <div class="v-linha"
+                       title="Valor venal de referência (base do ITBI, o que a consulta da prefeitura devolve), estimado do cadastro do IPTU. Erro típico ~5%.">
+                    <dt>VVR (ITBI)</dt>
+                    <dd>
+                      ~{{ a.iptu.vvr_est | moeda_curta }}
+                      {% if a.preco %}<span class="pct">{{ (a.iptu.vvr_est / a.preco * 100) | round | int }}% do preço</span>{% endif %}
+                    </dd>
+                  </div>
                 {% endif %}
                 {% if a.area_of and a.area_of.dif_pct is not none and a.area_grau not in ('compativel', 'sem dado') %}
                   <div class="v-linha {{ a.area_grau }}"

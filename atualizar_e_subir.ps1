@@ -1,4 +1,4 @@
-# Atualiza os anúncios (incluindo o Imovelweb), analisa as fotos pelo Claude
+# Atualiza os anúncios, analisa as fotos pelo Claude
 # e sobe o site local.
 #
 #   .\atualizar_e_subir.ps1                 # tudo
@@ -10,6 +10,7 @@
 param(
     [switch]$SemVisao,
     [switch]$SoSite,
+    [switch]$Imovelweb,
     [int]$LimiteVisao = 0
 )
 
@@ -31,7 +32,11 @@ if (-not $SoSite) {
         }
     }
 
-    $args_ = @("-m", "cacaimoveis.atualizar", "--imovelweb", "--provedor", "claude")
+    # O Imovelweb só abre em navegador real e era metade do tempo da rodada
+    # (1h03 de 2h02 em 2026-10-07): fica de fora do diário, entra com -Imovelweb
+    # ou no mensal (caca-atualizar --completo).
+    $args_ = @("-m", "cacaimoveis.atualizar", "--provedor", "claude")
+    if ($Imovelweb) { $args_ += "--imovelweb" }
     if ($SemVisao) { $args_ += @("--pular", "visao") }
     if ($LimiteVisao -gt 0) { $args_ += @("--limite-visao", $LimiteVisao) }
 

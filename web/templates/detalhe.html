@@ -236,39 +236,45 @@
         </div>
       {% endif %}
 
-      {% if a.venal %}
-        {# Valor venal de REFERÊNCIA (VVR), a base do ITBI: projetado da razão
-           VVR/preço medida nas transações da região. Fica perto do mercado e
-           costuma ser maior que o venal do IPTU. #}
+      {% if a.iptu and a.iptu.vvr_est %}
+        {# VVR: o que a consulta da prefeitura devolve (base do ITBI). Estimado do
+           venal do IPTU × fator medido contra o ITBI público (ver config.VVR_FATOR_CADASTRO). #}
+        {% set v = a.iptu %}
         <div class="bloco" id="s-vvr">
-          <h2 class="bloco-titulo">{{ ic.icone('banco') }} Valor de referência do ITBI</h2>
+          <h2 class="bloco-titulo">{{ ic.icone('banco') }} Valor venal de referência (ITBI)</h2>
           <ul class="specs grande">
-            <li>{{ ic.icone('banco') }} ~{{ a.venal.valor_venal | moeda }}
-              <span class="fraco">({{ (a.venal.razao * 100) | round | int }}% do pedido)</span>
+            <li>{{ ic.icone('banco') }} ~{{ v.vvr_est | moeda }}
+              {% if a.preco %}<span class="fraco">({{ (v.vvr_est / a.preco * 100) | round | int }}% do pedido)</span>{% endif %}
             </li>
           </ul>
           <p class="bloco-nota">
-            {# O rótulo técnico ('cep5:02919') não diz nada a quem lê. Traduz
-               para a precisão que ele representa. A preposição já vai no
-               texto, para não sair "da região da cidade". #}
-            Base: razão venal/mercado
+            É o número que a <b>consulta da prefeitura</b> devolve e que serve de base mínima do
+            ITBI. Estimado do cadastro do IPTU deste
+            {% if v.nivel == 'lote' %}imóvel{% else %}tipo de imóvel na {{ 'rua' if v.nivel == 'rua' else 'região do CEP' }}{% endif %}
+            × <b>{{ '%.2f' | format(v.vvr_fator) | replace('.', ',') }}</b>
+            (relação medida em 49.879 vendas{% if v.esquina %}; lote de esquina{% endif %}).
+            Erro típico de ~5%, e em 1 de cada 5 imóveis passa de 11%: confira o valor oficial pelo botão
+            “Conferir na prefeitura”.
+          </p>
+        </div>
+      {% elif a.venal %}
+        {# sem cadastro do IPTU: projeção pela razão VVR/mercado da região #}
+        <div class="bloco" id="s-vvr">
+          <h2 class="bloco-titulo">{{ ic.icone('banco') }} Valor de referência do ITBI (estimativa pela região)</h2>
+          <ul class="specs grande">
+            <li>{{ ic.icone('banco') }} ~{{ a.venal.valor_venal | moeda }}
+              {% if a.preco %}<span class="fraco">({{ (a.venal.valor_venal / a.preco * 100) | round | int }}% do pedido)</span>{% endif %}
+            </li>
+          </ul>
+          <p class="bloco-nota">
+            Projeção pela razão venal/mercado
             {%- if a.venal.regiao == 'cidade' %} <b>da cidade</b>
             {%- elif a.venal.regiao.startswith('cep5') %} <b>do CEP</b>
             {%- elif a.venal.regiao.startswith('cep4') %} <b>da faixa de CEP</b>
             {%- elif a.venal.regiao.startswith('cep3') %} <b>da região do CEP</b>
-            {%- else %} <b>{{ a.venal.regiao }}</b>{% endif %},
-            medida em {{ a.venal.n_pares | numero }} transações reais registradas
-            na prefeitura.
-            {%- if a.venal.origem_cep == 'rua' and a.venal.regiao != 'cidade' %}
-              O anúncio não informa o CEP; ele foi <b>deduzido do logradouro</b>
-              a partir das transações da prefeitura nessa mesma rua.
-            {%- elif a.venal.origem_cep == 'rua' %}
-              O anúncio não informa o CEP, e a rua não tem transações
-              suficientes para deduzi-lo com segurança.
-            {%- endif %}
-            É o <b>valor venal de referência</b> (VVR) que a prefeitura usa como
-            base mínima do ITBI (3% sobre o maior entre ele e o preço). É uma
-            projeção pela região, não uma consulta do imóvel.
+            {%- else %} <b>{{ a.venal.regiao }}</b>{% endif %}
+            ({{ a.venal.n_pares | numero }} transações reais). Menos precisa que a do cadastro:
+            o imóvel não foi localizado no cadastro da prefeitura.
           </p>
         </div>
       {% endif %}
@@ -309,7 +315,8 @@
             {% endif %}
             Fórmula da Lei 10.235/86 sobre o cadastro aberto do IPTU
             (valor do m² da Planta Genérica de Valores, fator de profundidade,
-            obsolescência). É a base do <b>IPTU</b>, não preço de mercado.
+            obsolescência). É a base do <b>IPTU</b>, não preço de mercado, e <b>não é</b> o
+            “valor venal de referência” que a consulta da prefeitura devolve (esse é o cartão ao lado).
           </p>
         </div>
       {% endif %}

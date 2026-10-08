@@ -178,7 +178,8 @@ def criar(caminho: str) -> None:
 
     # --- valor venal (todos) ----------------------------------------------
     for k, a in enumerate(anuncios):
-        regiao = ["cep5:02919", "cep4:0291", "cidade"][k % 3]
+        # k % 3 == 2 não tem venal do IPTU (abaixo): é quem mostra a região na tela
+        regiao = ["cep4:0291", "cidade", "cep5:02919"][k % 3]
         _inserir(conn, "valores_venais", {
             "anuncio_url": a["url"], "valor_venal": a["preco"] * 0.4,
             "razao": 0.4, "regiao": regiao, "n_pares": 120,

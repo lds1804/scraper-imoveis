@@ -15,6 +15,7 @@ import sys
 from playwright.sync_api import sync_playwright
 
 from cacaimoveis import config
+from cacaimoveis.incremental import Incremental
 from cacaimoveis.scraper_browser import (
     CloudflareBloqueou,
     _e_challenge,
@@ -100,7 +101,7 @@ def dry_run(alvos: list[str] | None = None) -> None:
         ctx.close()
 
 
-def rodar(alvos: list[str] | None = None) -> int:
+def rodar(alvos: list[str] | None = None, completa: bool = False) -> int:
     selecionados = _filtrar_bairros(alvos)
     if not selecionados:
         print("Nenhum bairro para coletar.")
@@ -116,7 +117,7 @@ def rodar(alvos: list[str] | None = None) -> int:
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
 
         try:
-            _coletar(selecionados, page, ctx, db)
+            _coletar(selecionados, page, ctx, db, Incremental(db.conn, "imovelweb", completa=completa))
         except CloudflareBloqueou as e:
             bloqueado = True
             print(f"\n[cloudflare] {e}. Coleta do Imovelweb interrompida.")
@@ -130,12 +131,12 @@ def rodar(alvos: list[str] | None = None) -> int:
     return 3 if bloqueado else 0
 
 
-def _coletar(selecionados, page, ctx, db) -> None:
+def _coletar(selecionados, page, ctx, db, incr=None) -> None:
     novos = 0
     descartados_tipo = 0
     for bairro in selecionados:
         print(f"\n{'=' * 60}\nBAIRRO: {bairro.nome}\n{'=' * 60}")
-        for anuncio in coletar_bairro(page, bairro):
+        for anuncio in coletar_bairro(page, bairro, incremental=incr):
             if db.existe(anuncio.url):
                 print(f"  [pulado] já salvo: {anuncio.url}")
                 continue
@@ -176,6 +177,8 @@ def _coletar(selecionados, page, ctx, db) -> None:
             )
 
     print(f"\n{'=' * 60}")
+    if incr:
+        print(f"Coleta incremental: {incr.resumo()}")
     print(f"Novos anúncios salvos: {novos}")
     if descartados_tipo:
         print(f"Descartados (não-casa): {descartados_tipo}")
@@ -191,6 +194,9 @@ def main() -> int:
         metavar="SLUG",
         help="Coleta só estes bairros (slug ou nome, separados por espaço)",
     )
+    parser.add_argument(
+        "--completa", action="store_true",
+        help="Varre todas as páginas de todos os bairros (sem parar cedo)")
     args = parser.parse_args()
 
     if args.listar:
@@ -198,7 +204,7 @@ def main() -> int:
     elif args.dry_run:
         dry_run(args.bairros)
     else:
-        return rodar(args.bairros)
+        return rodar(args.bairros, completa=args.completa)
     return 0
 
 

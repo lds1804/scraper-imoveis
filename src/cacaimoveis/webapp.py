@@ -441,8 +441,15 @@ def _venais_iptu(conn: sqlite3.Connection, urls: list[str]) -> dict[str, dict]:
             "SELECT 1 FROM sqlite_master WHERE name='venal_iptu'").fetchone():
         return {}
     marcadores = ",".join("?" * len(urls))
-    return {r["anuncio_url"]: dict(r) for r in conn.execute(
+    saida = {r["anuncio_url"]: dict(r) for r in conn.execute(
         f"SELECT * FROM venal_iptu WHERE anuncio_url IN ({marcadores})", urls)}
+    # VVR (o que a consulta oficial da prefeitura devolve), estimado do venal do IPTU
+    for v in saida.values():
+        fator = config.VVR_FATOR_CADASTRO.get(min(int(v.get("esquina") or 0), 2),
+                                              config.VVR_FATOR_CADASTRO[0])
+        v["vvr_est"] = round((v.get("valor_venal") or 0) * fator, 2)
+        v["vvr_fator"] = fator
+    return saida
 
 
 def _venais(conn: sqlite3.Connection, urls: list[str]) -> dict[str, dict]:

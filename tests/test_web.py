@@ -251,10 +251,13 @@ def test_rotulo_da_regiao_do_venal_e_legivel(cliente, banco):
     url = banco.execute(
         """SELECT v.anuncio_url FROM valores_venais v
            JOIN comparacoes c ON c.anuncio_url = v.anuncio_url
-           WHERE v.regiao LIKE 'cep5:%' LIMIT 1""").fetchone()[0]
+           WHERE v.regiao LIKE 'cep5:%'
+             AND v.anuncio_url NOT IN (SELECT anuncio_url FROM venal_iptu) LIMIT 1""").fetchone()[0]
     r = cliente.get("/anuncio/" + urllib.parse.quote(url, safe=""))
     assert r.status_code == 200
     h = _texto(r)
+    # sem lote no cadastro do IPTU, cai na projeção pela razão da região
+    assert "estimativa pela região" in h
     assert "do CEP" in h
     assert "transaç" in h
 
@@ -310,7 +313,24 @@ def test_pagina_do_anuncio_mostra_o_venal_do_iptu(cliente, banco):
     h = _texto(cliente.get("/anuncio/" + urllib.parse.quote(url, safe="")))
     assert "Valor venal (IPTU 2026)" in h
     assert "este imóvel" in h and "construído em" in h
-    assert "Valor de referência do ITBI" in h
+    # o cartão do VVR vem do cadastro × fator, e diz que é o número da consulta oficial
+    assert "Valor venal de referência (ITBI)" in h
+    assert "consulta da prefeitura" in h
+    assert "estimativa pela região" not in h
+
+
+def test_vvr_estimado_aplica_o_fator_de_esquina(banco):
+    """VVR = venal do IPTU x fator (1,157; esquina 1,256), medido contra o ITBI."""
+    from cacaimoveis import config, webapp
+
+    url = banco.execute(
+        "SELECT anuncio_url FROM venal_iptu WHERE nivel = 'lote' LIMIT 1").fetchone()[0]
+    antes = banco.execute("SELECT valor_venal, esquina FROM venal_iptu WHERE anuncio_url = ?",
+                          (url,)).fetchone()
+    v = webapp._venais_iptu(banco, [url])[url]
+    fator = config.VVR_FATOR_CADASTRO[min(int(antes["esquina"] or 0), 2)]
+    assert v["vvr_fator"] == fator
+    assert v["vvr_est"] == round(antes["valor_venal"] * fator, 2)
 
 
 # ---------------------------------------------------------------------------

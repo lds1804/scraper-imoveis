@@ -1045,10 +1045,15 @@ def _abrir_pagina_listagem(page, url: str) -> str | None:
     return None
 
 
-def coletar_bairro(page, alvo) -> Iterator[Anuncio]:
+def coletar_bairro(page, alvo, incremental=None) -> Iterator[Anuncio]:
     """Itera pelas páginas de um bairro e gera Anuncios (já parseados).
 
     `alvo` pode ser um `config.Bairro` ou uma string.
+
+    `incremental` (ver `incremental.py`): para de paginar quando duas páginas
+    seguidas só trazem anúncio já visto. Sem isto o Imovelweb abria SEMPRE as 4
+    páginas de cada bairro (78 aberturas, ~17 min só de espera, medido em
+    2026-10-07), enquanto ZAP, QuintoAndar e OLX já paravam cedo.
 
     Antes de coletar, confere o <title> da página: se o bairro não foi
     reconhecido (título diz "em São Paulo, SP **ou** <bairro>", ou é um
@@ -1114,6 +1119,9 @@ def coletar_bairro(page, alvo) -> Iterator[Anuncio]:
         print(f"[bairro] {nome}: nenhuma grafia foi reconhecida. Pulando.")
         return
 
+    if incremental:
+        incremental.novo_bairro()
+
     for pagina in range(1, (config.MAX_PAGINAS or 1) + 1):
         if pagina == 1:
             anuncios = primeira_pagina
@@ -1161,9 +1169,21 @@ def coletar_bairro(page, alvo) -> Iterator[Anuncio]:
         if pagina > 1:
             print(f"  {len(anuncios)} anúncios encontrados.")
 
+        urls_pagina = [a.url for a in anuncios]
+        n_ineditos = incremental.novos(urls_pagina) if incremental else 0
+
         for a in anuncios:
             # guarda o bairro REAL que veio no anúncio (pode diferir do buscado)
             a.bairro = bairro_do_endereco(a.endereco) or nome
             yield a
+
+        if incremental:
+            # só depois de o consumidor processar a página inteira: se a coleta
+            # cair no meio, ela não é dada como vista
+            incremental.registrar(urls_pagina)
+            if incremental.pode_parar(n_ineditos):
+                print(f"  [incremental] {incremental.paginas_sem_novos} páginas seguidas "
+                      f"sem anúncio novo; encerrando {nome}.")
+                break
 
         _sleep()

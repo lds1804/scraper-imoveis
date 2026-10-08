@@ -166,6 +166,16 @@ ENCAIXE_DESCONTO_MAX = 0.5       # desconto acima disso não conta mais
 # vendas é uma pista, não uma certeza.
 ENCAIXE_PESO_CONFIANCA = {"alta": 1.0, "media": 0.8, "baixa": 0.5}
 
+# Valor venal de REFERÊNCIA (VVR, base do ITBI, é o que a consulta da prefeitura
+# devolve) estimado a partir do venal do IPTU que `iptu.py` calcula. NÃO são o
+# mesmo número: medido em 49.879 vendas de 2025+ comparadas por endereço com o
+# cadastro, o `valor_venal` do ITBI é, na mediana, 1,157x o venal do IPTU, e
+# 1,256x quando o lote é de esquina (o fator de esquina não entra na conta do
+# IPTU daqui). Validação em ruas que o ajuste não viu: erro mediano 4,6% (14,1%
+# sem o fator) e viés +0,2%; 80% dos casos erram até 11,3%. Chave = nº de
+# esquinas do lote. Ver `experimentos/calibrar_vvr.py`.
+VVR_FATOR_CADASTRO = {0: 1.157, 1: 1.256, 2: 1.045}
+
 # Anúncio "novo": visto pela primeira vez há no máximo N dias (contando o dia
 # de hoje). Ver `filtros.sql_novo`.
 NOVO_DIAS = 2

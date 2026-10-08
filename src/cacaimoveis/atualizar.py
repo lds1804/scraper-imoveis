@@ -131,6 +131,7 @@ def montar_etapas(args) -> list[Etapa]:
         coleta.append("--completa")
     if args.max_paginas:
         coleta += ["--max-paginas", str(args.max_paginas)]
+    imovelweb = ["main"] + (["--completa"] if args.completo else [])
     visao = ["analisar_visao", "--provedor", args.provedor]
     if args.limite_visao:
         visao += ["--limite", str(args.limite_visao)]
@@ -145,7 +146,7 @@ def montar_etapas(args) -> list[Etapa]:
         # a coleta desiste depois de IMOVELWEB_MAX_BLOQUEIOS aberturas seguidas
         # bloqueadas (código 3) e os detalhes depois de 5 falhas seguidas
         Etapa("imovelweb", "coleta do Imovelweb e das páginas de detalhe (navegador)",
-              [["main"], ["enriquecer_detalhes", "--parar-apos", "5"]],
+              [imovelweb, ["enriquecer_detalhes", "--parar-apos", "5"]],
               opcional="imovelweb"),
         Etapa("coleta", "anúncios novos do ZAP, QuintoAndar e OLX", [coleta]),
         Etapa("fotos", "fotos dos anúncios que ficaram sem nenhuma", funcao=_fotos),
@@ -173,7 +174,7 @@ def montar_etapas(args) -> list[Etapa]:
         Etapa("itbi", "comparação com o preço praticado (ITBI)",
               [["comparar_itbi", "--atualizar"], ["comparar_itbi", "--amostra", "0"]]),
         Etapa("venal", "valor venal de referência (VVR) estimado",
-              [["valor_venal", "--calcular"]]),
+              [["valor_venal", "--calcular", "--refazer"]]),
         Etapa("venal-iptu", "valor venal oficial do IPTU", [["iptu", "--calcular"]]),
         Etapa("area", "área do anúncio x cadastro da prefeitura",
               [["referencia_geosampa", "--calcular", "--amostra", "0"]]),
